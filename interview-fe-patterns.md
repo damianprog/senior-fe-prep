@@ -169,3 +169,28 @@ długość nie zależy od typu elementów.
   czytelność dla zespołu. Jeśli gwarancję da się mieć runtime'owo (Zod na granicy API)
   albo nie jest w ogóle potrzebna — nie rób galaxy-brain conditional types z `infer`
   na trzech poziomach. Dojrzałość = wiedzieć, kiedy gwarancja compile-time jest warta
+
+  ### First<T> — pierwszy element tuple (type-challenges #14)
+
+**Key insight:** `T[0]` dla `[]` zwraca `undefined`, nie `never`
+(index poza zakresem). Odróżnienie "puste" od "[undefined]" wymaga
+sprawdzenia length ALBO pattern matchingu na kształcie tuple.
+
+**Canonical (idiomatic):**
+type First<T extends readonly any[]> =
+T extends readonly [infer F, ...any[]] ? F : never;
+
+**Alternatywa (length-based):**
+type First<T extends readonly any[]> =
+T["length"] extends 0 ? never : T[0];
+
+**Pitfalls:**
+
+- ❌ `T[0]` samo → dla [] daje undefined, nie never
+- ❌ `T[0] extends undefined ? never : T[0]` → psuje [undefined]
+- tuple ma LITERALNĄ length (0,1,2...); zwykła tablica ma length: number
+
+**Talking point:** "brak elementu" ≠ "element === undefined".
+`[infer F, ...]` nie dopasuje pustego tuple → never za darmo.
+
+**Related:** Last<T> (`[...any[], infer L]`), Tail<T>, Length<T>
