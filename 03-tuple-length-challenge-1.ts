@@ -21,7 +21,13 @@ type Length<tuple extends readonly string[]> = tuple["length"];
 /* _____________ Test Cases _____________ */
 
 const tesla = ["tesla", "model 3", "model X", "model Y"] as const;
-const spaceX = ["FALCON 9", "FALCON HEAVY", "DRAGON", "STARSHIP", "HUMAN SPACEFLIGHT"] as const;
+const spaceX = [
+  "FALCON 9",
+  "FALCON HEAVY",
+  "DRAGON",
+  "STARSHIP",
+  "HUMAN SPACEFLIGHT",
+] as const;
 
 type cases = [
   Expect<Equal<Length<typeof tesla>, 4>>,
