@@ -194,3 +194,65 @@ T["length"] extends 0 ? never : T[0];
 `[infer F, ...]` nie dopasuje pustego tuple → never za darmo.
 
 **Related:** Last<T> (`[...any[], infer L]`), Tail<T>, Length<T>
+
+## throttle — leading + trailing edge
+
+**Problem:** Senior FE Prep. Zaimplementuj `throttle`, które pali na leading edge, gwarantuje wypalenie ostatniego calla w serii (trailing), i nigdy nie strzela częściej niż raz na `delay`.
+
+**Key insight:** Throttle = „pal natychmiast na wejściu do okna, potem najwyżej raz na `delay`, ale nie zgub ostatniego calla". Leading i trailing muszą się **wzajemnie wykluczać w obrębie jednego okna** — jeśli jeden wypala, drugi nie może dopalić w tym samym oknie. To jest oś całego problemu.
+
+**Canonical implementation:**
+
+```typescript
+export function throttle<F extends (...args: any[]) => void>(
+  fn: F,
+  delay: number,
+): (...args: Parameters<F>) => void {
+  let lastTime = 0;
+  let timerId: ReturnType<typeof setTimeout> | null = null;
+  let freshArgs: Parameters<F>;
+
+  return function throttled(this: unknown, ...args: Parameters<F>) {
+    freshArgs = args; // odświeżane co call — trailing strzeli najświeższymi
+
+    if (Date.now() - lastTime > delay && !timerId) {
+      // leading: okno minęło I żaden trailing nie tyka
+      fn.apply(this, args);
+      lastTime = Date.now();
+    } else if (timerId === null) {
+      // trailing: zaplanuj raz, callback czyta freshArgs (nie args!)
+      timerId = setTimeout(() => {
+        fn.apply(this, freshArgs);
+        lastTime = Date.now(); // symetria do leading — inaczej double-fire
+        timerId = null;
+      }, delay);
+    }
+  };
+}
+```
+
+**Pitfalls (w tym własne anti-patterny):**
+
+1. **Stale args.** Domknięcie nad parametrem `args` łapie dane z calla, który _założył_ timer, nie z ostatniego w oknie. Objaw: trailing strzela `pos2`, gdy user zatrzymał się na `pos3`. Fix: `freshArgs` w scope domknięcia, nadpisywane na górze każdego wywołania; callback czyta `freshArgs`.
+2. **Brak `lastTime = Date.now()` w callbacku trailinga.** Po strzale trailinga `lastTime` wskazuje stary leading → następny call liczy `now - lastTime > delay` od zamierzchłego punktu i pali za wcześnie → dwa strzały bliżej niż `delay`. (Potknięcie x2 tej sesji — warte osobnej flashcardy.)
+3. **Leading pali, gdy trailing wciąż pending.** Okno minęło, ale uzbrojony wcześniej timer nikt nie rozbroił → leading strzela + timer dopala chwilę później → złamany rate limit. Dwie poprawne obrony:
+   - `&& !timerId` w warunku leading — _suppress_ leading, dopóki timer tyka (wersja powyżej; leniwsza, prostsza, zero `clearTimeout` w throttle).
+   - `clearTimeout(timerId)` w gałęzi leading — anuluj zbędny trailing (responsywniejsza, pali od razu). Uwaga: `clearTimeout` w throttle jest OK **tylko** w tej gałęzi — w gałęzi „każdy call" byłby debounce'owym resetem okna.
+4. **`ReturnType<typeof Date.now>` = cargo-cult.** `Date.now()` jest zabetonowane w ECMA-262 do `(): number` w każdym runtime → to tylko `number` owinięty w szum. Kontrast: `ReturnType<typeof setTimeout>` **jest** uzasadnione, bo typ id timera różni się runtime (browser `number` vs Node `NodeJS.Timeout`). Kryterium: `ReturnType<>` zarabia, gdy typ realnie się waha albo chcesz sprzężenia z czymś poza Twoją kontrolą; odpuść, gdy jest ustalony specyfikacją.
+
+**Notes:**
+
+- `lastTime = 0` (nie `Date.now()`) na starcie — celowe. `0` to „prehistoria" względem realnego `Date.now()` (~1.7e12 ms), więc pierwszy call zawsze pali jako leading. `Date.now()` na starcie zablokowałby pierwszy leading edge.
+- `!timerId` działa (id timera zawsze truthy: Node → obiekt, browser → dodatnia liczba), ale dla spójności z `timerId === null` w `else if` rozważ `=== null` w obu miejscach.
+- **Opcjonalnie otwarte:** pairing `this`. Arrow-callback łapie `this` z calla, który założył timer, a `freshArgs` z ostatniego → rozjazd, gdy różne `this` w oknie. Fix symetryczny: `freshThis`. W praktyce throttle wisi na jednym kontekście, więc rzadko boli.
+
+**Complexity:** O(1) czasu i pamięci na wywołanie.
+
+**Talking points (rozmowa):**
+
+- Leading vs trailing edge — umieć narysować timeline z burstem `a/b/c`.
+- throttle ≠ debounce: debounce resetuje okno (`clearTimeout` co call), throttle gwarantuje regularność. Ciągły scroll przez 10 s przy `delay=300`: debounce strzela **0 razy** w trakcie (dopiero po ustaniu), throttle ~33 razy.
+- Wzajemne wykluczanie leading/trailing w oknie (pitfall 3) — mało kto łapie bez podpowiedzi, mocny sygnał.
+- `ReturnType<typeof setTimeout>` justified vs `Date.now` cargo-cult (pitfall 4) — pokazuje dojrzałość w TS.
+
+**Related:** `debounce` (dual role of `this`, `ReturnType<typeof setTimeout>`), leading/trailing edge, lodash `_.throttle` / `_.debounce`.
