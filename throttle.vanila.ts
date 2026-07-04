@@ -11,7 +11,7 @@ export function throttle<F extends (...args: any[]) => void>(
   return function throttled(this: unknown, ...args: Parameters<F>) {
     freshArgs = args;
 
-    if (Date.now() - lastTime > delay) {
+    if (Date.now() - lastTime > delay && timerId === null) {
       fn.apply(this, args);
       lastTime = Date.now();
     } else if (timerId === null) {
