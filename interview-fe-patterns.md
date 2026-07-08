@@ -256,3 +256,110 @@ export function throttle<F extends (...args: any[]) => void>(
 - `ReturnType<typeof setTimeout>` justified vs `Date.now` cargo-cult (pitfall 4) — pokazuje dojrzałość w TS.
 
 **Related:** `debounce` (dual role of `this`, `ReturnType<typeof setTimeout>`), leading/trailing edge, lodash `_.throttle` / `_.debounce`.
+
+# ES5 `myExtends` — imitacja `class extends` przez prototypy
+
+## Key insight
+
+Konstruktor w JS ma **dwa niezależne sloty prototypowe**, obsługiwane osobno:
+
+- **Slot A — `fn.prototype`**: jawny obiekt, który `new` nadaje instancjom. Obsługuje `instancja.metoda()`.
+- **Slot B — `Object.getPrototypeOf(fn)`** (`[[Prototype]]` _samej funkcji_): obsługuje `Konstruktor.static()`.
+
+Pełna imitacja `extends` = **dwa lustrzane, dwuogniwowe łańcuchy** — jeden po `.prototype` (instancje), drugi po `[[Prototype]]` funkcji (static). Funkcja/obiekt ma tylko jeden `[[Prototype]]`, więc jednym linkiem nie złapiesz dwóch przodków — potrzebny łańcuch.
+INSTANCJE: dog → MyType.prototype → Dog.prototype → Animal.prototype → Object.prototype
+STATIC: DogExtended → Dog → Animal → Function.prototype
+
+## Canonical implementation
+
+```typescript
+export const myExtends =
+  S extends (...args: any[]) => any,
+  T extends (...args: any[]) => any,
+>(SuperType: S, SubType: T) => {
+  // Step 1: konstruktor — odpala oba ciała na wspólnym this
+  const extended = function MyType(
+    this: unknown,
+    ...args: [...Parameters<S>, ...Parameters<T>]
+  ) {
+    SuperType.apply(this, args);   // pola instancji: name
+    SubType.apply(this, args);     // pola instancji: breed  (later-write-wins)
+  };
+
+  // Step 2: łańcuch INSTANCJI (slot A)
+  Object.setPrototypeOf(SubType.prototype, SuperType.prototype); // #2: Dog.prototype → Animal.prototype
+  extended.prototype = Object.create(SubType.prototype);         // #1: MyType.prototype → Dog.prototype (świeża warstwa)
+  extended.prototype.constructor = extended;                     // higiena: wskaźnik zwrotny
+
+  // Step 3: łańcuch STATIC (slot B) — lustro Step 2
+  Object.setPrototypeOf(SubType, SuperType);   // #2: Dog → Animal
+  Object.setPrototypeOf(extended, SubType);    // #1: extended → Dog
+
+  // Step 4
+  return extended;
+};
+```
+
+## Two "override" mechanisms (nie mylić!)
+
+| Co                               | Mechanizm                     | Kto wygrywa                                     |
+| -------------------------------- | ----------------------------- | ----------------------------------------------- |
+| Pola instancji (`name`, `breed`) | `.apply` po kolei na `this`   | **last-write-wins** — kto pisze później         |
+| Metody (`greet`, `bark`)         | lookup po łańcuchu prototypów | **first-match-in-chain** — kto bliżej instancji |
+
+Efekt semantyczny ten sam ("dziecko przesłania rodzica"), ale jednym rządzi _kolejność zapisu_, drugim _pozycja w łańcuchu_.
+
+## Named pitfalls
+
+**1. Kopiowanie właściwości zamiast delegacji → `instanceof` = false**
+`Object.assign(MyType.prototype, Animal.prototype)` sprawia, że `greet()` działa, ALE `Animal.prototype` nigdy nie wchodzi do łańcucha instancji. `instanceof` szuka _obiektu_ w łańcuchu (identyczność), nie jego właściwości → `dog instanceof Animal === false`.
+_Root cause_: kopia wartości ≠ obecność obiektu w łańcuchu.
+_Fix_: delegacja (wepnij prawdziwy prototyp jako ogniwo).
+
+**2. Alias `child.prototype = parent.prototype` zamiast `Object.create` → prototype pollution**
+`=` to aliasing: obie nazwy wskazują _jeden_ obiekt. Zapis na `child.prototype` (np. fixup `.constructor`) wycieka na `parent.prototype`. Testy happy-path przechodzą, produkcja płonie.
+_Root cause_: brak własnej warstwy dla child; współdzielony obiekt z parentem.
+_Counterexample_: `child.prototype.constructor = child` → `new Parent().constructor === child` (bug).
+_Fix_: `Object.create(parent.prototype)` — świeża warstwa delegująca przez referencję (nie kopia → łańcuch wciąż dochodzi do prawdziwego parenta, `instanceof` działa).
+
+**3. Static przez jeden link (`setPrototypeOf(child, grandparent)`) → gubi statyki pośredniego rodzica**
+`setPrototypeOf(extended, SuperType)` łapie tylko statyki `SuperType`; static na `SubType` przepada, bo łańcuch funkcji pomija `SubType`.
+_Root cause_: funkcja ma jeden `[[Prototype]]` → dziedziczenie z dwóch przodków wymaga łańcucha, nie linku.
+_Fix_: `extended → SubType → SuperType` (lustro łańcucha instancji).
+
+**4. `x.prototype = Object.create(parent.prototype)` gubi automatyczny `.constructor`**
+Podmiana `.prototype` na świeży pusty obiekt wyrzuca oryginalne `{ constructor: x }`. `instancja.constructor` przeskakuje po łańcuchu na parenta.
+_Root cause_: nowy obiekt z `Object.create` nie ma własnego `.constructor`.
+_Fix_: `x.prototype.constructor = x` — bezpieczny **tylko** dzięki `Object.create` (piszesz na warstwie child); przy aliasie brudziłby parenta (patrz pitfall #2).
+
+## Gotchas
+
+- **`.prototype` (slot A) ≠ `[[Prototype]]` funkcji (slot B)**: `F.prototype !== Object.getPrototypeOf(F)`. Nazwa `.prototype` myli — to "obiekt dla instancji", nie "prototyp tej funkcji".
+- **Named function expression**: `const extended = function MyType(){}` — `MyType` widoczne tylko wewnątrz ciała (rekurencja, `.name` w stack trace); z zewnątrz `MyType` → `ReferenceError`. `extended.prototype` i "MyType.prototype" to ten sam obiekt.
+- **`Object.create` linkuje przez referencję, nie kopiuje**: `getPrototypeOf(Object.create(x)) === x`. To dlatego łańcuch dochodzi do prawdziwego parenta.
+- **`.apply` vs `.call`**: `apply(this, args)` bierze `args` jako tablicę (mamy już tablicę z rest); `call` wymagałby `...args`.
+- **Kolejność linijek w Step 2 wymienna**: `Object.create(SubType.prototype)` trzyma _referencję_ do żywego `Dog.prototype`, więc późniejszy `setPrototypeOf` na nim jest widziany.
+- **Mutacja inputu**: `setPrototypeOf(SubType.prototype, ...)` i `setPrototypeOf(SubType, ...)` trwale mutują cudze `Dog`/`Dog.prototype`. Akceptowalny kompromis dla imitacji `extends` (to samo robi Babel `_inherits`), ale świadomy.
+
+## TS typing
+
+- `<S extends (...args: any[]) => any>` + `(SuperType: S)` → TS **wnioskuje** konkretny `(name: string) => void`, więc `Parameters<S>` = prawdziwa tupla `[name: string]`, nie `any[]`. Bez generyka `Parameters<(...args: any[]) => any>` = `any[]` → dwa spready `any[]` w tupli = błąd 1265 (rest po rest).
+- `[...Parameters<S>, ...Parameters<T>]` = konkatenacja tupli (tu `[name: string]` + `[]` = `[name: string]`) — zachowuje arność dla call-site (`new DogExtended('Rex')` chce string). Czysto ergonomia typów; runtime działa identycznie z `any[]` (args tylko przekazywane, nie czytane po indeksie).
+- `this: unknown` — phantom parameter (typuje `this` pod `noImplicitThis`, nie jest realnym argumentem).
+
+## Talking points
+
+- _"Konstruktor ma dwa sloty prototypowe: `.prototype` dla instancji, `[[Prototype]]` funkcji dla static — imitacja extends obsługuje oba osobno, każdy dwuogniwowym łańcuchem."_
+- _"`instanceof` sprawdza obecność obiektu w łańcuchu, nie właściwości — dlatego kopiowanie metod nie wystarcza, potrzebna delegacja."_
+- _"`Object.create(parent.prototype)` daje child własną warstwę delegującą do parenta — bez tego alias brudzi parenta przy każdym zapisie."_
+- _"To dokładnie to, co generuje Babel dla `class extends` (`_inherits` przestawia oba: `.prototype` i static)."_
+
+## Complexity
+
+Setup O(1). Property lookup O(d) gdzie d = głębokość łańcucha (tu stała, 4-5 ogniw).
+
+## Related
+
+- `debounce`/`throttle` — `this` binding, phantom `this` parameter, `.apply`
+- type-challenges: `Parameters`, konkatenacja tupli, `extends` jako constraint vs dziedziczenie
+- Follow-up interview Q: _"czemu `dog.constructor` pokazuje złą funkcję?"_ → pitfall #4
