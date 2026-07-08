@@ -18,6 +18,7 @@ export const myExtends = <
   // Step 2: Set up prototype chain
   Object.setPrototypeOf(SubType.prototype, SuperType.prototype);
   extended.prototype = Object.create(SubType.prototype);
+  extended.prototype.constructor = extended;
   // Step 3: Set up static/constructor inheritance
   Object.setPrototypeOf(SubType, SuperType);
   Object.setPrototypeOf(extended, SubType);
