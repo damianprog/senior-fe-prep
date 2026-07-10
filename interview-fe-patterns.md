@@ -363,3 +363,104 @@ Setup O(1). Property lookup O(d) gdzie d = głębokość łańcucha (tu stała, 
 - `debounce`/`throttle` — `this` binding, phantom `this` parameter, `.apply`
 - type-challenges: `Parameters`, konkatenacja tupli, `extends` jako constraint vs dziedziczenie
 - Follow-up interview Q: _"czemu `dog.constructor` pokazuje złą funkcję?"_ → pitfall #4
+
+## myExtends — dziedziczenie w stylu ES5 (`class ... extends` pod maską)
+
+### Key insight
+
+`extends` da się odtworzyć na dwa różne **modele**, nie warianty:
+
+- **A — classical constructor (dual parallel chains).** Konstruktor operuje na `this`, wymaga `new`. Typ złożony dostaje **własne, pośrednie ogniwo prototypu** (`Combined.prototype = Object.create(Sub.prototype)`), przez co łańcuch instancyjny i statyczny są **równoległe**, ogniwo w ogniwo — jak w ES6 `class`.
+- **B — factory.** Funkcja buduje obiekt przez `Object.create(Sub.prototype)`, aplikuje oba konstruktory i **jawnie go zwraca**. Instancja jest zakorzeniona **bezpośrednio** w `Sub.prototype`; `Combined.prototype` jest martwy. Działa z `new` i bez `new`.
+
+Rdzeń różnicy: **method resolution** chodzi po CAŁYM łańcuchu (więc obie wersje dają identyczny dostęp do metod obu rodziców), ale `instanceof` i `.constructor` patrzą na **pierwsze ogniwo** (bezpośredni prototyp). Dlatego jedno dodatkowe ogniwo na górze zmienia obserwowalne zachowanie, mimo że metody działają tak samo.
+
+```text
+A:  obj → Combined.prototype → Sub.prototype → Super.prototype → Object.prototype
+B:  obj →                      Sub.prototype → Super.prototype → Object.prototype
+```
+
+### Canonical implementation
+
+```ts
+// A — classical constructor, new-mandatory, pełne typy
+export const myExtends =
+  S extends (...args: any[]) => any,
+  T extends (...args: any[]) => any,
+>(SuperType: S, SubType: T) => {
+  const extended = function MyType(
+    this: unknown,
+    ...args: [...Parameters<S>, ...Parameters<T>]
+  ) {
+    SuperType.apply(this, args);
+    SubType.apply(this, args);
+  };
+  Object.setPrototypeOf(SubType.prototype, SuperType.prototype); // instancyjny: Sub → Super
+  extended.prototype = Object.create(SubType.prototype);         // dodatkowe ogniwo
+  extended.prototype.constructor = extended;                     // napraw back-pointer
+  Object.setPrototypeOf(SubType, SuperType);                     // statyczny: Sub → Super
+  Object.setPrototypeOf(extended, SubType);                      // statyczny: MyType → Sub
+  return extended;
+};
+
+// B — factory, new-agnostic, typy luźne
+export const myExtends = (SuperType: Function, SubType: Function) => {
+  function ExtendedType(...args: any[]) {
+    const target = Object.create(SubType.prototype); // instancja zakorzeniona wprost w Sub.prototype
+    SuperType.apply(target, args);
+    SubType.apply(target, args);
+    return target;                                   // jawny return → new-agnostic
+  }
+  Object.setPrototypeOf(SubType.prototype, SuperType.prototype);
+  Object.setPrototypeOf(ExtendedType, SuperType);    // statyczny: Extended → Super (Sub pominięty!)
+  return ExtendedType;
+};
+```
+
+Zachowanie (zweryfikowane runtime, strict mode):
+
+| cecha                                      | A                 | B              |
+| ------------------------------------------ | ----------------- | -------------- |
+| own props obu konstruktorów                | ✅                | ✅             |
+| metody proto Super + Sub                   | ✅                | ✅             |
+| `instanceof Combined`                      | ✅ true           | ❌ false       |
+| `inst.constructor`                         | `MyType`          | `Sub` (mylące) |
+| static Super z Combined                    | ✅                | ✅             |
+| static Sub z Combined                      | ✅                | ❌ MISSING     |
+| bez `new`                                  | rzuca `TypeError` | zwraca obiekt  |
+| równoległość chain instancyjny ‖ statyczny | ✅                | ❌ asymetria   |
+
+### Named pitfalls (z root cause)
+
+1. **B: `instanceof Combined` = false, `constructor` = Sub.**
+   Root cause: instancja zakorzeniona wprost w `Sub.prototype`, więc `ExtendedType.prototype` (domyślny, `{constructor: ExtendedType}` z proto `Object.prototype`) nigdy nie trafia do łańcucha — jest martwy. `instanceof` nie znajduje `Combined.prototype`; `constructor` rozwiązuje się na pierwszym ogniwie = `Sub.prototype`.
+
+2. **B: statics `SubType` niedostępne z typu złożonego.**
+   Root cause: łańcuch statyczny to tylko `Extended → Super`; `Sub` nie jest w nim wcale. A ma `MyType → Sub → Super`, więc widzi statics obu.
+
+3. **`Object.create(proto)` gubi własny `constructor`.**
+   Root cause: `Object.create` produkuje obiekt bez własnego `constructor` → bez ręcznego `extended.prototype.constructor = extended` `inst.constructor` zjechałby po łańcuchu do `Sub`. To jest dokładnie ten bug, który B ma „wbudowany".
+
+4. **Efekt uboczny: mutacja przekazanego `SubType` (dzielony przez A i B).**
+   Root cause: `Object.setPrototypeOf(Sub.prototype, Super.prototype)` mutuje in-place współdzieloną referencję → po wywołaniu goły `new Sub()` też staje się `instanceof Super`. A dodatkowo mutuje statyczny proto `Sub` (`setPrototypeOf(Sub, Super)`), więc skaża `Sub` mocniej (instancyjnie **i** statycznie); B tylko instancyjnie.
+
+5. **A wymaga `new`.**
+   Root cause: brak jawnego `return` → poleganie na `[[Construct]]`. W module (strict) wywołanie bez `new` daje `this === undefined`, `Super.apply(undefined, …)` rzuca `TypeError`. B jest odporne, bo zwraca obiekt jawnie (`new` odrzuca auto-`this`, gdy konstruktor zwróci obiekt).
+
+6. **Reasoning trap: „bezpośredni prototyp" ≠ „prototyp osiągalny w łańcuchu".**
+   Root cause: kuszące jest spłaszczenie węzła do jego rodzica — „obiekt, którego prototypem jest `Sub.prototype`" (czyli `Combined.prototype`) potraktować jak samo `Sub.prototype`. Ale to osobny obiekt (`Combined.prototype !== Sub.prototype`). Method resolution tego nie rozróżnia (oba dosięgają `Sub.prototype`), więc łatwo wywnioskować „wychodzi na to samo" — a `instanceof`/`constructor` natychmiast to demaskują.
+
+### Talking points
+
+- „`extends` zaimplementowałem dwoma modelami i porównałem. Classical-constructor odtwarza **dual parallel prototype chain** jak ES6 `class` — `instanceof`, `constructor` i statics działają, bo typ złożony ma własne ogniwo w obu równoległych łańcuchach. Factory jest krótsza i new-agnostyczna, ale zakorzenia instancję wprost w prototypie potomka, więc `instanceof CombinedType` zwraca false, a `constructor` wskazuje na potomka."
+- Trade-off do nazwania: **wierność semantyce `class`** (A) vs **prostota + odporność na sposób wywołania** (B).
+- „Oba dzielą jeden efekt uboczny: `setPrototypeOf` mutuje przekazany `SubType` globalnie."
+- Rozstrzygnięcie „który był potrzebny" = które asercje faktycznie były w test harnessie (`instanceof Combined`? `constructor`? statics `Sub`?). To jest jedyny obiektywny arbiter, nie estetyka.
+
+### Analogia (deliberate practice)
+
+Dual parallel chains (A) = ten sam pasaż obiema rękami w unisono — ręka instancyjna i statyczna grają tę samą linię, ogniwo w ogniwo (czysta artykulacja struktury `class`). Factory (B) = melodia prawą, uproszczony akompaniament lewą — na instancji brzmi poprawnie, ale to nie ta sama dwugłosowa faktura.
+
+### Related topics
+
+`Object.create` vs `Object.setPrototypeOf` · `[[Construct]]` i reguła „konstruktor zwraca obiekt" · `[[Prototype]]` vs `.prototype` vs `__proto__` · instance chain vs static/constructor chain · `instanceof` (Symbol.hasInstance) i mechanika `.constructor` · side-effecty mutacji prototypu
