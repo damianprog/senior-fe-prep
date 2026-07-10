@@ -464,3 +464,45 @@ Dual parallel chains (A) = ten sam pasaż obiema rękami w unisono — ręka ins
 ### Related topics
 
 `Object.create` vs `Object.setPrototypeOf` · `[[Construct]]` i reguła „konstruktor zwraca obiekt" · `[[Prototype]]` vs `.prototype` vs `__proto__` · instance chain vs static/constructor chain · `instanceof` (Symbol.hasInstance) i mechanika `.constructor` · side-effecty mutacji prototypu
+
+## TupleToUnion<T> — indexed access z `number`
+
+**Key insight:** `T[number]` wyciąga unię typów wszystkich elementów tupla. Indeksowanie _literałem_ (`T[0]`) daje jedną pozycję; indeksowanie _typem_ `number` pyta o "dowolny indeks naraz", więc TS zwraca unię wszystkich pozycji.
+
+### Canonical implementation
+
+```typescript
+type TupleToUnion<T extends any[]> = T[number];
+```
+
+### Dlaczego `number` produkuje unię
+
+- `T[0]` → jeden literał (`Arr[0]` w `['1','2','3']` = `'1'`, NIE `string`)
+- `T[0 | 1]` → `T[0] | T[1]` (indexed access rozdziela się po unii kluczy)
+- `T[number]` = "najszersza unia numerycznych indeksów tupla" → unia wszystkich elementów
+- Jednoelementowy tupel: `[123][number]` = `123` (unia z jednym członem = ten człon)
+
+### Named pitfalls
+
+1. **`Arr[0]` to literał, nie `string`.** Root cause: literały żyją tylko w tuplach / typach literalnych. TS pamięta konkretną wartość na konkretnej pozycji, dopóki typ nie zostanie rozszerzony do `string[]`.
+2. **`T[number]` na zwykłej tablicy gubi literały.** Root cause: `string[]` nie pamięta pozycji — każdy indeks to `string`, więc `TupleToUnion<string[]>` = `string`, nie unia literałów. Union literałów dostajesz tylko z tupla.
+
+```typescript
+type A = TupleToUnion<[123, "456", true]>; // 123 | '456' | true
+type B = TupleToUnion<string[]>; // string
+```
+
+3. **`Number` vs `number`.** Root cause: `Number` to JS-owy obiekt-wrapper, `number` to typ prymitywu. W indexed access chcesz `number`.
+
+### Talking points
+
+- Mechanizm nazywa się **indexed access type**. `T[number]` to jego przypadek: indeksowanie typem zamiast literałem.
+- "`T[number]` wyciąga union typu elementów; dla tupla literałów dostaję unię literałów, dla zwykłej tablicy — szeroki typ elementu."
+- Dystrybutywność po unii kluczy: `T[K1 | K2]` = `T[K1] | T[K2]`.
+
+### Related topics
+
+- `keyof` + `T[keyof T]` (unia typów wartości obiektu — ten sam mechanizm, inny zbiór kluczy)
+- Literal types vs widened types (`'1'` vs `string`)
+- Distributive nature indexed access
+- Mapped types (kolejny krok: iteracja po kluczach zamiast unii)
