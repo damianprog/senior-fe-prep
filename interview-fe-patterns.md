@@ -506,3 +506,27 @@ type B = TupleToUnion<string[]>; // string
 - Literal types vs widened types (`'1'` vs `string`)
 - Distributive nature indexed access
 - Mapped types (kolejny krok: iteracja po kluczach zamiast unii)
+
+## Pick<T, K> — reconstruction
+
+**Key insight:** Constraint `K extends keyof T` to warunek konieczny, nie kosmetyka — bez niego `T[P]` w ciele jest nielegalne, bo TS nie ma gwarancji, że `P` to klucz `T`.
+
+**Canonical implementation:**
+
+```typescript
+type MyPick<T, K extends keyof T> = { [P in K]: T[P] };
+```
+
+**Named pitfalls:**
+
+- **Brak constraintu (`K extends keyof T`)** → dwa błędy naraz: (a) `T[P]` nie kompiluje się, bo `P` może nie być kluczem `T`; (b) test `@ts-expect-error` na `MyPick<Todo, "invalid">` sam się wysypuje, bo bez constraintu nie ma błędu do złapania.
+- **Mylenie constraint z default** → `K extends keyof T` (ograniczenie) to nie to samo co `K = keyof T` (wartość domyślna). Tu potrzebny constraint.
+
+**Complexity:** type-level, O(|K|) mapowań.
+
+**Talking points:**
+
+- `keyof T` produkuje union literalów-kluczy; `extends` na generyku działa jak bound, nie jak equality.
+- Mapped type `[P in K]` jest homomorficzny — zachowuje modyfikatory (`readonly`, `?`) źródła, co odróżnia go od ręcznego budowania obiektu.
+
+**Related:** `Omit<T, K>` (dopełnienie — `Exclude<keyof T, K>`), `Record<K, T>`, `Partial<T>`.
