@@ -530,3 +530,73 @@ type MyPick<T, K extends keyof T> = { [P in K]: T[P] };
 - Mapped type `[P in K]` jest homomorficzny — zachowuje modyfikatory (`readonly`, `?`) źródła, co odróżnia go od ręcznego budowania obiektu.
 
 **Related:** `Omit<T, K>` (dopełnienie — `Exclude<keyof T, K>`), `Record<K, T>`, `Partial<T>`.
+
+## Deep Equals (rekurencyjne porównanie głębokie)
+
+**Key insight:** Rekurencyjne zejście przez struktury + `Map` na wykrywanie cykli
+(optymistyczne parowanie a→b). Sednem NIE jest algorytm, tylko **kolejność
+strażników**: guard na `null` i rozgałęzienie typu muszą wyprzedzać każdy
+dostęp do własności (`.length`, `Object.keys`), bo `typeof null === "object"`.
+
+**Canonical implementation:**
+
+```typescript
+function deepEquals(a: any, b: any, cache = new Map()): boolean {
+  if (cache.has(a) && cache.get(a) === b) return true; // cykl: para już widziana
+  cache.set(a, b);
+
+  if (a === b) return true; // prymitywy + ta sama referencja + null/null
+  if (typeof a !== typeof b) return false;
+  if (a === null || b === null) return false; // MUSI być przed .length / .keys
+
+  if (Array.isArray(a) !== Array.isArray(b)) return false; // symetria [] vs {}
+  if (Array.isArray(a)) {
+    if (a.length !== b.length) return false;
+    return a.every((v, i) => deepEquals(v, b[i], cache));
+  }
+  if (typeof a === "object") {
+    const aKeys = Object.keys(a);
+    if (aKeys.length !== Object.keys(b).length) return false;
+    return aKeys.every(
+      (k) => Object.hasOwn(b, k) && deepEquals(a[k], b[k], cache),
+    );
+  }
+  return false;
+}
+```
+
+**Named pitfalls + root cause:**
+
+1. `typeof null === "object"` → `null` wpada w gałąź obiektową/tablicową i
+   `Object.keys(null)` / `null.length` RZUCA. Fix: guard na `null` PRZED
+   dostępem do własności, ale PO `a === b` (żeby `null/null` dało `true`).
+2. Płytkie porównanie tablic: `b[i] === val` porównuje referencje →
+   `[[1]] vs [[1]]` daje `false`. Fix: rekurencja `deepEquals(val, b[i])`.
+3. `b[key] === undefined` NIE odróżnia braku klucza od wartości `undefined`
+   → psuje `{a: null}` / `{a: undefined}`. Fix: `Object.hasOwn(b, key)`.
+4. `b.hasOwnProperty(key)` zakłada prototyp → `Object.create(null)` nie ma
+   tej metody i RZUCA. Fix: `Object.hasOwn` (ES2022) lub
+   `Object.prototype.hasOwnProperty.call(b, key)`.
+5. Asymetria `{} vs []`: `Array.isArray` sprawdzane tylko dla `a`. Fix:
+   `Array.isArray(a) !== Array.isArray(b)`.
+
+6. implicit undefined z brakującego returnu maskuje się w rekurencji (falsy), ujawnia na top-level prymitywie
+
+**Out of scope (nazwij na rozmowie):**
+
+- `NaN`: `===` daje `false`; lodash traktuje `NaN` jako równe (semantyka
+  `SameValueZero`). Wybór projektowy.
+- `Date`/`RegExp`/`Map`/`Set`: mają puste enumerowalne klucze → wyglądają jak
+  `{}`. Wymagają dedykowanej gałęzi (`instanceof Date` → porównaj `.getTime()`).
+
+**Complexity:** O(n) po sumie węzłów obu struktur; przestrzeń O(d) stos +
+O(k) cache (k = liczba odwiedzonych węzłów-obiektów).
+
+**Talking points:**
+
+- „Guard order matters" — jednozdaniowa pointa całego zadania.
+- Cache mapuje wartości, nie booleany → optymistyczne założenie równości
+  przy cyklu (wystarczające, bo cykl domyka się na tej samej parze).
+
+**Related:** structural sharing (Immer), `Object.is` vs `===`, memo
+comparators w React (`React.memo`, `useMemo` deps).
