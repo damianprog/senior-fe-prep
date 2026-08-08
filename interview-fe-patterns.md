@@ -600,3 +600,14 @@ O(k) cache (k = liczba odwiedzonych węzłów-obiektów).
 
 **Related:** structural sharing (Immer), `Object.is` vs `===`, memo
 comparators w React (`React.memo`, `useMemo` deps).
+
+**What is the recommended step-by-step approach for implementing a deep equals function?**
+
+1. Strictly compare two values for equality and return if true.
+2. Perform type checking on both values.
+3. If types are not equal, return false.
+4. If types are equal and primitive, return the comparison result.
+5. If types are objects or arrays, check the cache to see if this pair has already been processed (to handle circular references).
+6. Store the current pair in the cache.
+7. Compare the length/number of keys - if lengths differ, return false.
+8. Recursively compare each key and value, passing the cache to prevent infinite loops.
