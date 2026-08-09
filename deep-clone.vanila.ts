@@ -5,7 +5,18 @@ import { detectType } from "@course/utils";
 
 type TCollection = Map<any, any> | Set<any> | Record<any, any> | Array<any>;
 
-function getTarget(type: string): TCollection {}
+function getTarget(type: string): TCollection {
+  switch (type) {
+    case "map":
+      return new Map();
+    case "set":
+      return new Set();
+    case "array":
+      return [];
+    default:
+      return {};
+  }
+}
 function entries(target: TCollection): Iterable<[key: any, value: any]> {}
 function set(target: TCollection, key: any, value: any) {}
 
@@ -23,15 +34,17 @@ export const deepClone = <T>(a: T, cache = new Map()): T => {
   switch (type) {
     case "date":
     case "object":
-      const clone: Record<any, any> = {};
+    case "array": {
+      const clone = getTarget(type);
+
       for (const [key, value] of Object.entries(a)) {
         clone[key] = deepClone(value, cache);
       }
 
-      return clone;
+      return clone as T;
+    }
     case "map":
     case "set":
-    case "array":
     default:
       throw "Unsupported type " + a;
   }
