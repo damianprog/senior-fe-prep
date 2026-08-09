@@ -17,8 +17,23 @@ function getTarget(type: string): TCollection {
       return {};
   }
 }
-function entries(target: TCollection): Iterable<[key: any, value: any]> {}
-function set(target: TCollection, key: any, value: any) {}
+function entries(target: TCollection): Iterable<[key: any, value: any]> {
+  if (target instanceof Map || target instanceof Set || Array.isArray(target)) {
+    return target.entries();
+  }
+  return Object.entries(target);
+}
+function set(target: TCollection, key: any, value: any) {
+  if (target instanceof Map) {
+    target.set(key, value);
+  } else if (target instanceof Set) {
+    target.add(value);
+  } else if (Array.isArray(target)) {
+    target[key] = value;
+  } else {
+    target[key] = value;
+  }
+}
 
 export const deepClone = <T>(a: T, cache = new Map()): T => {
   const type = detectType(a);
@@ -33,18 +48,19 @@ export const deepClone = <T>(a: T, cache = new Map()): T => {
 
   switch (type) {
     case "date":
+      return new Date(a as any) as T;
     case "object":
-    case "array": {
+    case "array":
+    case "map":
+    case "set": {
       const clone = getTarget(type);
-
-      for (const [key, value] of Object.entries(a)) {
-        clone[key] = deepClone(value, cache);
+      cache.set(a, clone);
+      for (const [key, value] of entries(a)) {
+        set(clone, key, deepClone(value, cache));
       }
 
       return clone as T;
     }
-    case "map":
-    case "set":
     default:
       throw "Unsupported type " + a;
   }
