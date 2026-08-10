@@ -48,7 +48,7 @@ export const deepClone = <T>(a: T, cache = new Map()): T => {
 
   switch (type) {
     case "date":
-      return new Date(a as any) as T;
+      return new Date(Number(a)) as T;
     case "object":
     case "array":
     case "map":
