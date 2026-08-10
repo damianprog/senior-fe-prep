@@ -611,3 +611,151 @@ comparators w React (`React.memo`, `useMemo` deps).
 6. Store the current pair in the cache.
 7. Compare the length/number of keys - if lengths differ, return false.
 8. Recursively compare each key and value, passing the cache to prevent infinite loops.
+
+## deepClone (rekurencyjny, z obsługą cykli)
+
+**Key insight**
+Cztery typy kolekcji różnią się dokładnie w trzech miejscach: (1) jak stworzyć
+pusty kontener, (2) jak iterować, (3) jak zapisać. Wyciągnięcie tych trzech
+różnic do helperów (`getTarget` / `entries` / `set`) sprowadza pętlę główną do
+jednego bloku, wspólnego dla object/array/map/set.
+
+Cykle rozwiązuje `Map<original, clone>` — ale sedno leży w **momencie zapisu**,
+nie w istnieniu cache'a.
+
+**Canonical implementation**
+[wklej wersję z sekcji 5]
+
+Kształt pętli głównej:
+const clone = getTarget(type);
+cache.set(a, clone); // ← PRZED pętlą
+for (const [key, value] of entries(a)) {
+set(clone, deepClone(key, cache), deepClone(value, cache));
+}
+
+**Named pitfalls**
+
+1. Tying the knot — cache zapisany PO pętli
+   Root cause: warunek stopu rekurencji jest zapisywany dopiero po jej
+   zakończeniu → zależność cykliczna, stos rośnie w nieskończoność.
+   Counterexample: const o = {a:1}; o.self = o;
+   cache.set przed pętlą → OK, clone.self === clone
+   cache.set po pętli → RangeError: Maximum call stack size exceeded
+   Reguła: wpis do cache'a znaczy "ten klon ma już TOŻSAMOŚĆ", nie "jest gotowy".
+   Wewnętrzne wywołanie dostaje klon NIEKOMPLETNY (zweryfikowane: w momencie
+   trafienia w cache klon miał klucze ["a"], po powrocie ["a","self"]).
+   Działa, bo przekazujesz referencję, a zewnętrzna pętla dopełnia ten sam obiekt.
+
+2. Klucze Map nie są klonowane
+   Root cause: deepClone wywołane tylko na value.
+   Counterexample: const k = {id:1}; const m = new Map([[k,"v"]]);
+   [...deepClone(m).keys()][0] === k → true (współdzielone!)
+   structuredClone: → false
+   Fix: set(clone, deepClone(key, cache), deepClone(value, cache))
+   Bezpieczne dla wszystkich typów: klucz tablicy to number, obiektu to string
+   (przechodzą przez guard prymitywów bez zmian), w Secie klucz jest ignorowany.
+
+3. Date poza cache'em → utrata tożsamości
+   Counterexample: const d = new Date(0); deepClone({x:d, y:d}).x === .y → false
+   structuredClone zachowuje tożsamość. Cykle tego nie wykrywają (Date nie ma
+   dzieci), więc typowy test suite to przepuszcza.
+
+4. Lookup table zwracająca mutowalne wartości
+   Root cause: { array: [], map: new Map() } ewaluuje wartości RAZ, przy
+   tworzeniu obiektu → wszystkie klony współdzielą jedną instancję.
+   Counterexample: deepClone({a:[1], b:[2]}).a === .b → true (!!)
+   Fix: switch/case (ewaluacja przy każdym wywołaniu) albo fabryki: { array: () => [] }
+
+5. `Record<any, any>` w unii wyłącza type checking
+   Zweryfikowane (tsc --strict):
+   const c: TCollection = Map; → OK (konstruktor!)
+   const d: TCollection = () => {}; → OK
+   const a: TCollection = 42; → TS2322
+   Klucz `any` degeneruje typ do "dowolny obiekt". Skutek uboczny: `return clone`
+   w case "object" nie zgłaszał TS2322, choć Record<string,any> zgłasza.
+   Wniosek: `any` w pozycji klucza to nie "dowolny klucz", tylko "przestań sprawdzać".
+
+6. Type space vs value space
+   `return new Map()` vs `return Map<any, any>` — to drugie to _instantiation
+   expression_ (TS 4.7+): zwraca KONSTRUKTOR z przypiętymi argumentami typu,
+   nie instancję. Kompiluje się bez błędu (patrz pkt 5), wybucha w runtime.
+   `Record<any,any>` jako wartość → TS2693 (alias typu nie istnieje w runtime).
+
+7. throw stringiem z konkatenacją obiektu
+   const w = Object.create(null); w[Symbol.toStringTag] = "Weird";
+   "Unsupported type " + w → TypeError: Cannot convert object to primitive value
+   Zamiast czytelnego błędu dostajesz mylący TypeError z innej warstwy.
+   Fix: throw new Error("Unsupported type " + type) ← konkatenuj string, nie obiekt.
+
+8. `if (cachedClone)` zamiast `cache.has(a)`
+   Correct by accident: działa tylko dlatego, że getTarget zawsze zwraca truthy.
+   Jedna falsy wartość w cache'u → nieskończona rekurencja.
+
+**Whitelist over blacklist (type dispatch)**
+`getTarget` ma `default: return {}` — sam w sobie jest blacklistą. Whitelistę
+realizuje switch w deepClone przez wyliczenie case'ów + `default: throw`.
+Bez tego regexp/Promise/WeakMap/Error klonują się po cichu do `{}` — zero
+enumerowalnych właściwości, żadnego błędu. Silent data corruption.
+Zweryfikowane: Object.entries(/a/g) → [], Object.entries(new WeakMap()) → []
+
+Ta sama reguła w `entries()`: sprawdzaj "czy to Map/Set/Array" (whitelist),
+nie "czy to plain object, else .entries()" (blacklist) — bo w tej drugiej
+wersji `new Foo()` trafia do else i wybucha `entries is not a function`.
+
+**Wykrywanie typu — trzy opcje**
+| metoda | zawęża w TS | cross-realm | odporna na dane |
+|-------------------------------|-------------|-------------|-----------------|
+| instanceof | tak | NIE | tak |
+| Object.prototype.toString.call| nie | tak | tak |
+| "set" in target (duck typing) | częściowo | tak | NIE |
+
+- typeof zwraca "object" dla Map/Set/Array/Date/null — bezużyteczne do rozróżniania.
+  Nadaje się tylko do "prymityw czy obiekt".
+- instanceof cross-realm: vm.runInNewContext("new Map()") instanceof Map → false,
+  ale toString.call → "[object Map]". Stąd istnienie Array.isArray().
+- duck typing na CUDZYCH danych jest zawsze błędem: { set: 1, add: 2 } zostanie
+  wzięte za Mapę → TypeError: target.set is not a function.
+  Reguła: duck typing bezpieczny na danych, których kształt kontrolujesz.
+
+**Set.prototype.entries() → [value, value]**
+Zweryfikowane: [...new Set([10,20]).entries()] → [[10,10],[20,20]]
+Wartość zduplikowana — Set dostarcza kształt [key, value] mimo braku kluczy,
+żeby był kompatybilny z kodem iterującym kolekcje generycznie. Idealnie pasuje
+do set(), który dla Seta i tak ignoruje klucz.
+
+Kształty pozostałych:
+Map: [["k",1]] klucz dowolny
+Array: [[0,10],[1,20]] klucz NUMBER (Object.entries daje STRING!)
+Object: [["a",1]] klucz string
+
+**Znane ograniczenia (nazwać na rozmowie, zanim zapytają)**
+
+- gettery → klonowana wartość, nie getter (Object.entries je wywołuje)
+- klucze symbolowe, non-enumerable, własne props na tablicach → gubione
+- instancja klasy → zwykły obiekt (instanceof Foo → false), tak samo jak structuredClone
+- Object.create(null) → klon zyskuje Object.prototype
+- tablice rzadkie: [1,,3] → dziura staje się undefined (1 in clone → true).
+  Array.prototype.entries() NIE pomija dziur, w odróżnieniu od Object.entries/forEach/map
+- funkcje: zwracane przez referencję (typeof "function" przechodzi guard prymitywów,
+  switch ich nie widzi). structuredClone rzuca DataCloneError. Decyzja obronialna
+  (lodash cloneDeep też tak robi), ale musi być świadoma.
+
+**Complexity**
+Czas O(n), pamięć O(n) — n = liczba węzłów. Cache dodaje O(n) pamięci
+i gwarantuje, że każdy węzeł odwiedzany dokładnie raz (bez niego cykl = ∞).
+
+**Talking points**
+
+- rozdzielenie tożsamości od zawartości ("tying the knot") — czemu cache przed pętlą
+- czemu whitelist, nie blacklist, przy dispatchu po typie
+- instanceof vs toString.call: trade-off narrowing w TS ↔ cross-realm
+- co structuredClone robi lepiej (klucze Map, tożsamość Date, dziury w tablicach)
+  i czego nie umie (funkcje, prototypy klas)
+- „`any` w typie to nie 'cokolwiek', to 'przestań sprawdzać'"
+
+**Related**
+
+- deepEquals (ten sam problem cykli, ale cache keyed na PARZE: Map<a, Set<b>>,
+  nie na pojedynczym węźle)
+- structuredClone (natywne, ale rzuca na funkcjach i gubi prototypy klas)
+- lodash cloneDeep (ground truth dla edge case'ów)
