@@ -1358,3 +1358,127 @@ bun test src/problems/10-deep-clone/test/deep-clone.test.ts
 4. **Zielony `tsc` ≠ poprawność** — patrz sekcja G.
 5. **Test różnicowy ze `structuredClone`** wykrył dwa znaleziska (klucze Map, tożsamość Date),
    których nie złapało 50 testów z kursu.
+
+## TS: Mapped types i homomorficzność
+
+**Data:** 2026-08-14
+**Źródło:** challenge „zaimplementuj własne `Readonly<T>`" (kurs)
+**Status:** rozwiązane samodzielnie, drążone w głąb
+
+### Rozwiązanie
+
+```typescript
+type MyReadonly<T> = {
+  readonly [Property in keyof T]: T[Property];
+};
+```
+
+Identyczne z definicją w `lib.es5.d.ts`.
+
+### Ścieżka dedukcji (do powtórzenia na rozmowie)
+
+`keyof T` → union nazw kluczy → mapped type pozwala przeiterować po tym unionie → w każdej iteracji można zmienić **wartość** (`T[P]`), **modyfikator** (`readonly`, `?`) i — z klauzulą `as` — **nazwę klucza**.
+
+### Homomorphic mapped type — kluczowy koncept
+
+Zapis `[P in keyof T]`, gdzie `T` jest **parametrem typu**, uruchamia w kompilatorze specjalny tryb: _homomorphic mapped type_. TS nie wykonuje tego zapisu dosłownie — ma zaszyte cztery reguły:
+
+| #   | Zachowanie                                                        |
+| --- | ----------------------------------------------------------------- |
+| 1   | Modyfikatory `?` i `readonly` z wejścia przechodzą na wyjście     |
+| 2   | Tablica → tablica, tupla → tupla (z zachowaną długością)          |
+| 3   | Union na wejściu → dystrybucja po wariantach                      |
+| 4   | Prymityw na wejściu → ten sam prymityw na wyjściu (bez mapowania) |
+
+**Bez reguły 2** `Readonly<string[]>` dałoby obiekt z `push`, `pop`, `length` jako readonly properties — nie tablicę.
+**Bez reguły 4** `Readonly<string>` dałoby obiekt z metodami stringa jako polami.
+
+**Dlaczego reguła 4 w ogóle istnieje:** nie po to, żeby ktoś pisał `Readonly<string>`. Jest warunkiem koniecznym dla reguły 3 — przy `Readonly<string | Config>` kompilator rozbija union i mapuje każdy wariant osobno, więc musi umieć przepuścić prymityw. Inaczej `Readonly`/`Partial`/`Required` psułyby się na każdym unionie z prymitywem.
+
+### Dlaczego wbudowany `Readonly<T>` nie ma constraintu
+
+Naturalny odruch to dopisać `T extends object`. **Nie robi się tego** — constraint zabiłby regułę 3+4, czyli `Readonly<string | Config>` przestałoby się kompilować. Homomorficzność sama obsługuje tablice i prymitywy sensownie.
+
+### Pułapka: klauzula `as` wyłącza regułę 2
+
+```typescript
+type Suspect<T> = { readonly [P in keyof T as P]: T[P] }; // as P = no-op!
+```
+
+`as P` mapuje klucz **na samego siebie** — nic nie zmienia. A mimo to:
+
+```
+error TS2740: Type 'readonly string[]' is missing the following properties
+from type 'Suspect<string[]>': pop, push, reverse, shift, and 5 more.
+```
+
+Reguła jest **składniowa, nie semantyczna**: kompilator sprawdza samą _obecność_ klauzuli `as` w deklaracji, nie analizuje, czy ona cokolwiek robi.
+
+Homomorficzność to **nie jest przełącznik zero-jedynkowy** — reguły włączają się niezależnie:
+
+| reguła                              | `[P in keyof T]` | `[P in keyof T as P]` |
+| ----------------------------------- | ---------------- | --------------------- |
+| 1. modyfikatory `?` / `readonly`    | tak              | **tak**               |
+| 2. tablica → tablica, tupla → tupla | tak              | **NIE**               |
+| 3. dystrybucja po unionie           | tak              | tak                   |
+| 4. pass-through prymitywów          | tak              | tak                   |
+
+**Praktyczny wniosek:** nie dopisuj `as`, jeśli go nie potrzebujesz — dostaniesz cichą regresję na tablicach, bez żadnego błędu kompilacji.
+
+### Klauzula `as` — do czego służy naprawdę (TS 4.1+)
+
+Key remapping — zmiana nazwy klucza w trakcie mapowania:
+
+```typescript
+type Getters<T> = {
+  [P in keyof T as `get${Capitalize<string & P>}`]: () => T[P];
+};
+// { name: string } → { getName: () => string }
+```
+
+Drugie zastosowanie: `as` zwracające `never` **usuwa** klucz z wyniku. Tak implementuje się `Omit`.
+
+### Shallow vs deep readonly
+
+`Readonly<T>` (i własna implementacja) jest **płytkie** — jeden przebieg po kluczach najwyższego poziomu, `T[P]` przechodzi nietknięte:
+
+```typescript
+type Nested = MyReadonly<{ user: { name: string } }>;
+n.user = {...};       // BŁĄD: read-only property
+n.user.name = "b";    // przechodzi!
+```
+
+Gdzie to boli realnie:
+
+- `Object.freeze()` w runtime też jest płytkie (typ i zachowanie zgodne)
+- **Redux / Zustand** — `readonly` w typie stanu nie chroni zagnieżdżonych pól; stąd własne `DeepReadonly` albo Immer
+- **React props** — `Readonly<Props>` nie broni przed `props.config.x = 1`
+- Wyjątek: `as const` na literale działa rekurencyjnie (ale na wartościach, nie typach)
+
+### Metodyczna lekcja: hover kłamie
+
+Przy `type X = Suspect<string[]>` IDE pokazuje po prostu `Suspect<string[]>` — TS nie rozwija aliasu. **Weryfikuj zachowaniem, nie tooltipem:**
+
+```typescript
+declare const b: X;
+const lit: X = ["a"]; // czy literał pasuje?
+b[0] = "z"; // czy readonly?
+b.push("q"); // czy metoda istnieje?
+declare const ro: readonly string[];
+const c: X = ro; // ← ta linia rozstrzyga; treść błędu wymienia różnice
+```
+
+Celowy błąd typu (`const t: number = x`) to najszybszy sposób, żeby kompilator wypisał pełny kształt typu.
+
+### Pytania rozmowowe, na które to odpowiada
+
+- „Zaimplementuj `Readonly<T>` / `Partial<T>` / `Pick<T, K>` bez używania wbudowanych"
+- „Czym różni się homomorphic mapped type od zwykłego?"
+- „Dlaczego `Readonly<T>` nie ma constraintu `T extends object`?"
+- „Co się stanie z `Partial<string[]>`?"
+- „Jak zrobić `DeepReadonly`? Gdzie się psuje?" _(do zrobienia)_
+
+### TODO
+
+- [ ] `DeepReadonly<T>` — rekurencja + conditional type; rozważyć funkcje, `Date`, `Map`/`Set`
+- [ ] `+readonly` / `-readonly` i `-?` — kiedy wariant z plusem ma sens; `Required<T>` jako przykład
