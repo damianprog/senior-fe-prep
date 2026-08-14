@@ -1482,3 +1482,29 @@ Celowy błąd typu (`const t: number = x`) to najszybszy sposób, żeby kompilat
 
 - [ ] `DeepReadonly<T>` — rekurencja + conditional type; rozważyć funkcje, `Date`, `Map`/`Set`
 - [ ] `+readonly` / `-readonly` i `-?` — kiedy wariant z plusem ma sens; `Required<T>` jako przykład
+
+### Rozwiązanie instruktora — pułapka `T extends {}`
+
+```typescript
+type MyReadonly<T extends {}> = { readonly [P in keyof T]: T[P] };
+```
+
+**Czy constraint psuje homomorficzność? NIE.** Homomorficzność uruchamia _ciało_
+(wzorzec `[P in keyof T]`). Constraint to bramka w liście parametrów — decyduje
+co wolno przekazać, nie co się z tym stanie. Wszystkie 4 reguły działają dalej.
+
+**Prawdziwy błąd: `{}` to nie „obiekt".** W TS `{}` znaczy „cokolwiek poza `null`
+i `undefined`". `Instr<string>` kompiluje się bez problemu. Constraint, który miał
+blokować prymitywy, przepuszcza je wszystkie — a de facto jest strażnikiem null-safety.
+
+Fałszywi przyjaciele: `{}` ≠ `object` ≠ `Object`. Dla „tylko object types" → `T extends object`.
+
+**Realne koszty:**
+
+1. Odrzuca uniony z null: `Instr<string | null>` → `TS2344`. Wbudowany `Readonly` przechodzi.
+2. **Zaraża kompozycję:** `type Wrapper<T> = Instr<T>` → `TS2344: Type 'T' does not
+satisfy the constraint '{}'`. Każdy typ generyczny używający `Instr` musi powtórzyć
+   constraint. Propaguje się przez całą bazę kodu.
+
+**Zasada:** constraint w utility type dodajesz tylko wtedy, gdy ciało bez niego się
+nie kompiluje. Tu `keyof T` działa na każdym `T` — constraint to czysty koszt.

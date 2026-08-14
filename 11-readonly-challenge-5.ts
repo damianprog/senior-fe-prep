@@ -23,6 +23,11 @@ type MyReadonly<T> = {
   readonly [Property in keyof T]: T[Property];
 };
 
+// Rozwiązanie instruktora
+// type MyReadonly<T extends {}> = {
+//   readonly [Property in keyof T]: T[Property];
+// };
+
 type Z = MyReadonly<string>;
 
 type Suspect<T> = { readonly [P in keyof T as P]: T[P] };
