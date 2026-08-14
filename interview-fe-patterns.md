@@ -1508,3 +1508,72 @@ satisfy the constraint '{}'`. Każdy typ generyczny używający `Instr` musi pow
 
 **Zasada:** constraint w utility type dodajesz tylko wtedy, gdy ciało bez niego się
 nie kompiluje. Tu `keyof T` działa na każdym `T` — constraint to czysty koszt.
+
+## TS-01: Indexed access z `number` (tuple → unia elementów)
+
+**Data:** 2026-08-14
+**Źródło:** type-challenges — _Tuple to Object_ (easy)
+
+### Rozwiązanie
+
+```ts
+type TupleToObject<T extends readonly PropertyKey[]> = {
+  [K in T[number]]: K;
+};
+```
+
+Zweryfikowane na oficjalnych testach type-challenges (TS 7.0.2, `--strict`) — wszystkie 4 przypadki `Expect<Equal<...>>` przechodzą, `@ts-expect-error` na `[[1,2],{}]` też.
+
+### Sedno wzorca
+
+`T[number]` = unia wszystkich elementów krotki.
+
+Mechanizm: indexed access **dystrybuuje się po unii kluczy**. `T[0 | 1]` daje unię elementów 0 i 1. `number` to unia wszystkich indeksów liczbowych, więc `T[number]` daje wszystkie elementy naraz. To nie jest osobna magia — to ten sam mechanizm co `T[0]`.
+
+### Gdzie się zaciąłem
+
+1. **Sięgnąłem po `keyof`** zamiast indexed access. `keyof` daje **klucze** (`0 | 1 | ... | "length" | "map" | ...`), a ja chciałem **wartości**. W tablicy `"tesla"` to wartość pod kluczem `0`, nie klucz. → Pytanie kontrolne na przyszłość: _czy potrzebuję kluczy czy wartości?_ Jeśli wartości — nigdy `keyof`.
+2. **Nie znałem `PropertyKey`** = `string | number | symbol`. Wbudowany alias z lib.es5.d.ts.
+
+### Constrainty na tablicę — trzy niezależne osie
+
+| Oś            | Wariant                               | Znaczenie                                 |
+| ------------- | ------------------------------------- | ----------------------------------------- |
+| Długość       | `any[]` / `[any]` / `[any, ...any[]]` | dowolna / dokładnie 1 / co najmniej 1     |
+| Mutowalność   | `any[]` / `readonly any[]`            | wymaga `push` itd. / nie wymaga           |
+| Typ elementów | `any[]` / `PropertyKey[]`             | cokolwiek / tylko to, co może być kluczem |
+
+Pułapki:
+
+- `[any]` to **krotka jednoelementowa**, nie „tablica czegokolwiek". Nawiasy przed vs po typie to różne konstrukcje.
+- `[...any]`, `[...any[]]` i `any[]` to **dokładnie ten sam typ** (sprawdzone `Equal` → `true`). Spread pojedynczej tablicy w krotce nic nie wnosi.
+- `readonly T[]` jest **nadtypem** `T[]`, nie podtypem. Ma mniej metod → mniej gwarantuje → pasuje do niego więcej typów. Mutowalna przechodzi jako readonly, odwrotnie nie.
+- **Reguła praktyczna:** generyk, który tylko _czyta_ z tablicy, powinien mieć constraint `readonly` — inaczej odcina wszystkich użytkowników `as const`.
+
+### Narzędzia debugowania typów
+
+```ts
+// wymusza rozwinięcie leniwego aliasu przy hoverze
+type Expand<T> = T extends T ? T : never;
+
+// test IDENTYCZNOŚCI typów (nie tylko wzajemnej przypisywalności)
+type Equal<X, Y> =
+  (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2
+    ? true
+    : false;
+
+// zmusza kompilator do wypisania nazw kluczy w komunikacie błędu
+const z: Record<keyof typeof tuple, number> = {};
+```
+
+### Test pamięci (sprawdzić 2026-08-15)
+
+1. Jak z `readonly ["a","b","c"]` dostać `"a" | "b" | "c"`? Dlaczego to działa?
+2. Czym się różni `[any]` od `any[]`?
+3. Dlaczego `readonly number[]` nie przechodzi constraintu `number[]`, ale odwrotnie tak?
+4. Co to `PropertyKey` i po co go tu użyłem?
+5. Napisz `TupleToObject` od zera bez zaglądania.
+
+### Powiązane zadania (ten sam klocek wraca)
+
+`TupleToUnion`, `Last`, `Includes`, `Zip`, `Length of Tuple`
