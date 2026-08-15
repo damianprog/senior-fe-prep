@@ -22,19 +22,54 @@ import { detectType } from "@course/utils";
  * - circular:  (ref to self)    → '[Circular]'
  * - other:     unknown type     → '"Unsupported Type"'
  */
-export const stringify = (a: any, cache = new Set()) => {
+
+type TCollection = Map<any, any> | Set<any> | Record<any, any> | Array<any>;
+
+function entries(target: TCollection): Iterable<[key: any, value: any]> {
+  if (target instanceof Map || target instanceof Set || Array.isArray(target)) {
+    return target.entries();
+  }
+  return Object.entries(target);
+}
+
+export const stringify = (a: any, cache = new Set()): string => {
   const type = detectType(a);
 
-  if (!a || typeof a !== "object") {
-    return `${a}`;
-  }
+  if (cache.has(a)) return "[Circular]";
+
+  cache.add(a);
 
   switch (type) {
-    case "object":
-    case "map":
-    case "array":
-    case "set":
+    case "symbol":
+      return a.toString();
+    case "null":
+    case "number":
+    case "bigint":
+    case "boolean":
+    case "regexp":
+      return `${a}`;
+    case "undefined":
+    case "string": {
+      return `"${a}"`;
+    }
     case "date":
+      return a.toLocaleString();
+    case "map":
+    case "object": {
+      let keyValueStrings = [];
+      for (const [key, value] of entries(a)) {
+        keyValueStrings.push(`${key}: ${stringify(value, cache)}`);
+      }
+      return `{ ${keyValueStrings.join(", ")} }`;
+    }
+    case "array":
+    case "set": {
+      let values = [];
+      for (const [key, value] of entries(a)) {
+        values.push(stringify(value, cache));
+      }
+      return `[${values}]`;
+    }
     default:
       return '"Unsupported Type"';
   }
@@ -43,13 +78,33 @@ export const stringify = (a: any, cache = new Set()) => {
 // --- Examples ---
 // Uncomment to test your implementation:
 
-// console.log(stringify(null))              // Expected: null
-// console.log(stringify(42))                // Expected: 42
-// console.log(stringify(true))              // Expected: true
-// console.log(stringify('hello'))           // Expected: "hello"
-// console.log(stringify([1, 'a', true]))    // Expected: [1,"a",true]
-// console.log(stringify({ a: 1, b: 'x' })) // Expected: { a: 1, b: "x" }
-// console.log(stringify(new Date()))        // Expected: 3/7/2026, 8:15:00 PM (toLocaleString)
-// console.log(stringify(/abc/gi))           // Expected: /abc/gi
-// const circular: any = { a: 1 }; circular.self = circular
-// console.log(stringify(circular))          // Expected: { a: 1, self: [Circular] }
+const circular: any = { a: 1 };
+circular.self = circular;
+
+const map = new Map();
+
+map.set("ref", circular);
+
+const a = {
+  tescik: 1,
+};
+
+const b = {
+  q: a,
+  w: a,
+};
+
+// console.log(stringify(b));
+
+// console.log(stringify(new Set([1, 2])));
+
+// console.log(stringify(map));
+// console.log(stringify(null)); // Expected: null
+// console.log(stringify(42)); // Expected: 42
+// console.log(stringify(true)); // Expected: true
+// console.log(stringify("hello")); // Expected: "hello"
+// console.log(stringify([1, "a", true])); // Expected: [1,"a",true]
+// console.log(stringify({ a: 1, b: "x" })); // Expected: { a: 1, b: "x" }
+// console.log(stringify(new Date())); // Expected: 3/7/2026, 8:15:00 PM (toLocaleString)
+console.log(stringify(/abc/gi)); // Expected: /abc/gi
+// console.log(stringify(circular)); // Expected: { a: 1, self: [Circular] }
