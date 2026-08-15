@@ -35,10 +35,6 @@ function entries(target: TCollection): Iterable<[key: any, value: any]> {
 export const stringify = (a: any, cache = new Set()): string => {
   const type = detectType(a);
 
-  if (cache.has(a)) return "[Circular]";
-
-  cache.add(a);
-
   switch (type) {
     case "symbol":
       return a.toString();
@@ -56,18 +52,24 @@ export const stringify = (a: any, cache = new Set()): string => {
       return a.toLocaleString();
     case "map":
     case "object": {
+      if (cache.has(a)) return "[Circular]";
+      cache.add(a);
       let keyValueStrings = [];
       for (const [key, value] of entries(a)) {
         keyValueStrings.push(`${key}: ${stringify(value, cache)}`);
       }
+      cache.delete(a);
       return `{ ${keyValueStrings.join(", ")} }`;
     }
     case "array":
     case "set": {
+      if (cache.has(a)) return "[Circular]";
+      cache.add(a);
       let values = [];
-      for (const [key, value] of entries(a)) {
+      for (const [_, value] of entries(a)) {
         values.push(stringify(value, cache));
       }
+      cache.delete(a);
       return `[${values}]`;
     }
     default:
@@ -77,6 +79,12 @@ export const stringify = (a: any, cache = new Set()): string => {
 
 // --- Examples ---
 // Uncomment to test your implementation:
+
+const sx = new Set();
+sx.add(sx);
+
+const mx = new Map();
+mx.set("mx", mx);
 
 const circular: any = { a: 1 };
 circular.self = circular;
