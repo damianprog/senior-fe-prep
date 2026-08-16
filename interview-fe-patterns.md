@@ -1577,3 +1577,184 @@ const z: Record<keyof typeof tuple, number> = {};
 ### Powiązane zadania (ten sam klocek wraca)
 
 `TupleToUnion`, `Last`, `Includes`, `Zip`, `Length of Tuple`
+
+# Stringify (challenge podsumowujący deepEquals + deepClone)
+
+Data: 15.08.2026 · kurs: struktury danych / rekurencja
+
+## Problem
+
+Zamienić dowolną wartość na string opisujący jej **strukturę** — rekurencyjnie w głąb, z wykryciem cyklicznych referencji.
+
+| typ                       | input                 | output                         |
+| ------------------------- | --------------------- | ------------------------------ |
+| null                      | `null`                | `null`                         |
+| number / bigint / boolean | `42`, `42n`, `true`   | `42`, `42`, `true`             |
+| regexp                    | `/abc/gi`             | `/abc/gi`                      |
+| string                    | `"hello"`             | `"hello"` (z cudzysłowami)     |
+| undefined                 | `undefined`           | `"undefined"` (z cudzysłowami) |
+| symbol                    | `Symbol('x')`         | `"Symbol(x)"`                  |
+| date                      | `new Date()`          | `toLocaleString()`             |
+| object / map              | `{a:1}`, `Map{a=>1}`  | `{ a: 1 }`                     |
+| array / set               | `[1,"a"]`, `Set{1,2}` | `[1,"a"]`                      |
+| cykl                      | ref do przodka        | `[Circular]`                   |
+| inne                      | `function(){}`        | `"Unsupported Type"`           |
+
+## Implementacja końcowa
+
+```typescript
+type TCollection = Map<any, any> | Set<any> | Record<any, any> | Array<any>;
+
+function entries(target: TCollection): Iterable<[key: any, value: any]> {
+  if (target instanceof Map || target instanceof Set || Array.isArray(target)) {
+    return target.entries();
+  }
+  return Object.entries(target);
+}
+
+export const stringify = (a: any, cache = new Set()): string => {
+  const type = detectType(a);
+
+  switch (type) {
+    case "symbol":
+      return a.toString();
+    case "null":
+    case "number":
+    case "bigint":
+    case "boolean":
+    case "regexp":
+      return `${a}`;
+    case "undefined":
+    case "string":
+      return `"${a}"`;
+    case "date":
+      return a.toLocaleString();
+
+    case "map":
+    case "object": {
+      if (cache.has(a)) return "[Circular]";
+      cache.add(a);
+      let keyValueStrings = [];
+      for (const [key, value] of entries(a)) {
+        keyValueStrings.push(`${key}: ${stringify(value, cache)}`);
+      }
+      cache.delete(a);
+      return `{ ${keyValueStrings.join(", ")} }`;
+    }
+
+    case "array":
+    case "set": {
+      if (cache.has(a)) return "[Circular]";
+      cache.add(a);
+      let values = [];
+      for (const [_, value] of entries(a)) {
+        values.push(stringify(value, cache));
+      }
+      cache.delete(a);
+      return `[${values}]`;
+    }
+
+    default:
+      return '"Unsupported Type"';
+  }
+};
+```
+
+## Decyzje projektowe
+
+**1. `entries()` jako wspólny protokół przejścia.**
+Cztery różne struktury danych, jedna pętla. `Map.entries()` → `[key, value]`, `Array.entries()` → `[index, value]`, `Set.entries()` → `[value, value]` (Set duplikuje wartość właśnie po to, żeby pasować do interfejsu), a dla zwykłego obiektu `Object.entries()`. Bez tego byłyby cztery osobne pętle.
+
+**2. `toString()` odrzucone.**
+Jest płytkie i zwraca śmieci: `map.toString()` → `"[object Map]"`, `{}.toString()` → `"[object Object]"`. Nie da się go użyć jako bazy — string trzeba budować od zera.
+
+**3. `push` + `join` zamiast `+=`.**
+Nie chodzi o wydajność (V8 optymalizuje konkatenację przez rope strings). Chodzi o **separator**: przy `+=` musisz przy każdej iteracji sprawdzać „czy to ostatni element", żeby nie zostawić wiszącego przecinka. `join` załatwia to za darmo.
+
+**4. Cache jako `Set`, nie `Map`.**
+W `deepClone` potrzebna była Mapa, bo mapowałeś `oryginał → klon`. W `deepEquals` — `a → b`. Tutaj pytasz wyłącznie o **przynależność**, nie ma czego pamiętać po stronie wartości. Set to Map, w której value zawsze byłoby `true`.
+
+**5. Scalone `case`'y przez fallthrough.**
+`map` + `object` produkują identyczny output (`{ k: v }`), `array` + `set` też (`[v]`). Fallthrough zamiast duplikacji ciała.
+
+**6. Świadomie zostawiona duplikacja guardu.**
+`if (cache.has(a)) → add → pętla → delete` powtarza się w dwóch gałęziach. Alternatywy: tabela lookup `SHAPES` z polami `keyed/sep/wrap`, albo jeden `return` na końcu, albo wspólny guard przed `switch` ograniczony do typów kontenerowych. Przy 4 wariantach wszystkie są obronne — zostawiona duplikacja, bo traversal jest wtedy widoczny lokalnie w `case`.
+
+## Znane ograniczenia (poza spec)
+
+- **Klucze Map nie przechodzą przez `stringify`.** `${key}` na obiekcie → `[object Object]`, na Mapie → `[object Map]`, na **symbolu → rzuca `TypeError`**. Spec nie pokrywa nie-stringowych kluczy.
+- **`symbol` zwraca `Symbol(x)` bez cudzysłowów**, JSDoc wymaga `"Symbol(x)"`. Suite testów tego nie sprawdza. Do rozstrzygnięcia: kod czy komentarz jest prawdą.
+- **Pusty obiekt / pusta Mapa → `{  }`** (dwie spacje). Pusta tablica i pusty Set → `[]` poprawnie.
+- **`[${values}]`** polega na niejawnym `Array.prototype.toString` (= `join(",")`). Działa, ale gałąź obiektowa woła `join` jawnie — niespójność.
+- **`toLocaleString()` na Date** zależy od locale i TZ runtime'u → test niedeterministyczny w CI.
+- **`cache` jest w publicznej sygnaturze** — można wstrzyknąć własny Set z zewnątrz. Czyściej: wewnętrzny `walk(value, path)` + cienki wrapper `stringify(value)`.
+
+## Testy regresyjne (wszystkie przechodzą)
+
+```
+[1,1]                        → [1,1]
+{a:"x",b:"x"}                → { a: "x", b: "x" }
+x.self = x                   → { a: 1, self: [Circular] }
+{q:a, w:a}  (shared)         → { q: { tescik: 1 }, w: { tescik: 1 } }
+x.a=x; x.b=x                 → { a: [Circular], b: [Circular] }
+p.q=q; q.p=p; p.q2=q         → { q: { p: [Circular] }, q2: { p: [Circular] } }
+Set zawierający siebie       → [[Circular]]
+[inner, inner]               → [[1],[1]]
+arr.push(arr)                → [1,[Circular]]
+```
+
+---
+
+# Tematy poboczne
+
+## Path set vs visited set
+
+Główny wzorzec z tego zadania. To są DWA różne zbiory:
+
+|            | `visited` (historia)               | `path` (ścieżka)                          |
+| ---------- | ---------------------------------- | ----------------------------------------- |
+| Znaczenie  | „widziałem ten węzeł kiedykolwiek" | „ten węzeł jest moim przodkiem TERAZ"     |
+| Cykl życia | tylko `add`, nigdy `delete`        | `add` przy wejściu, `delete` przy wyjściu |
+| Do czego   | deduplikacja, memoizacja           | wykrywanie **cyklu**                      |
+
+Reguła: `add` i `delete` klamrują całe przejście węzła — w tej samej ramce wywołania, wokół całej pętli po dzieciach. Nazywaj to `path`, nie `cache` — `cache` sugeruje historię, czyli błędną semantykę.
+
+Pojawia się też w: detekcji cyklu w grafie skierowanym, topological sort, LeetCode 207 / 802 / 1192, `deepFreeze`.
+
+**Cztery kształty inputu demaskujące złą implementację** (coraz trudniejsze):
+
+1. `x.self = x` — czysty cykl. Przechodzi nawet przy `visited`.
+2. `const a = {t:1}; b = {q:a, w:a}` — **shared, nie cykl**. `visited` daje fałszywy `[Circular]` na `w`.
+3. `x.a = x; x.b = x` — shared **i** cykl naraz. Łapie złe miejsce `delete`.
+4. `p.q = q; q.p = p; p.q2 = q` — cykl wzajemny + shared.
+
+**Trzy błędy, które popełniłem po kolei:**
+
+- `has`/`add` **przed** rozpoznaniem typu → primitywy trafiają do zbioru → `[1, 1]` daje `[1,[Circular]]`. Do path setu wchodzą wyłącznie referencje; typ `Set<object>` wyklucza to na poziomie kompilacji.
+- `delete` **wewnątrz pętli** po dzieciach → węzeł znika ze ścieżki po pierwszym dziecku → nieskończona rekurencja na kształcie 1.
+- `delete` na **dziecku** zamiast na sobie → usuwasz wpis, którego nie dodałeś (gałąź zwracająca `[Circular]` nic nie dodała, wpis należał do przodka) → stack overflow na kształcie 3. Zasada: **kto dodał, ten usuwa**.
+
+Dodatkowo: `if (set.has(x)) set.delete(x)` — `Set.prototype.delete` na nieistniejącym elemencie to no-op, guard jest szumem.
+
+## Gotchas z JS/TS
+
+- `` `${Symbol("x")}` `` rzuca `TypeError: Cannot convert a Symbol value to a string`. `String(Symbol("x"))` działa — spec ma dla `String()` jawny wyjątek. Jedyny typ w JS blokujący niejawną konwersję na string.
+- `` `[${tablica}]` `` niejawnie woła `Array.prototype.toString` → `join(",")`.
+- `!a || typeof a !== "object"` jako test „to primityw" jest zepsute: `""` i `0` łapią się przez `!a`, `typeof function` to `"function"`, a `Date`/`RegExp` to obiekty. Działa w `deepEquals` (wszystkie primitywy przez `===`), NIE działa gdy output różni się per typ.
+- `Set` porównuje elementy przez SameValueZero → `1` i `1` to ten sam element, `{}` i `{}` nie.
+- Type guard (`x is T`) zamiast `as` przy zawężaniu do klucza tabeli lookup.
+- Para acquire/release (`add`/`delete`) w `try/finally` — niezmiennik przeżywa wyjątek w środku pętli.
+
+## Która duplikacja jest tania
+
+Duplikacja **formatowania** (literały, separatory) — tania. Zepsujesz, test krzyknie, każda gałąź czyta się lokalnie.
+
+Duplikacja **niezmiennika** (para acquire/release) — droga. Da się naprawić w jednej gałęzi i zapomnieć o drugiej, a testy przechodzą aż do rzadkiego kształtu inputu.
+
+Na rozmowie warto powiedzieć wprost, kiedy przestać abstrahować: tabela lookup przy 4 wariantach jest na styk opłacalna, przy 2 to przeinżynierowanie.
+
+## Do zrobienia
+
+- [ ] Test pamięci 16.08: detekcja cyklu w `deepFreeze` od zera, sprawdzona na czterech kształtach
+- [ ] Rozstrzygnąć rozbieżność symbol: kod vs JSDoc
+- [ ] Dopisać do JSDoc ograniczenie o kluczach Map
