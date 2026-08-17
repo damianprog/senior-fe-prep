@@ -1,0 +1,816 @@
+
+debounce najwyraźniej zwraca funkcje skoro do log przypisujemy to co zwraca wywołanie debounce a następnie wywołujemy np. log("a")
+
+log powinien być funkcją która odpala wywołanie callback functon dostarczonej do debounce po określonym czasie
+
+wywołanie arrow function z apply?
+
+ale nadal mi coś tutaj nie pasuje jeśli celem jest aby calback fn nie uruchamiał się częściej niż delay. Załóżmy że delay nie upłynął i że timerId jest null także ustawiamy timer który ma się odpalić za delay. No i uruchamiamy throttled ponownie tuż po ustawieniu setTimeout i już delay upłynął i uruchamiamy fn.
+
+
+ES5 Extends
+
+Jak zadeklarować constructor function? czymś wyjątkowym charakteryzuje się sygnatura takiej funkcji?
+
+po co sugerowane jest this w MyType(this, ...args)
+
+jakie argumenty ma przyjmować funkcja dziedzicząca?
+może wszystkie argumenty co SuperType oraz wszystkie argumenty co SubType?
+ale co z ich opcjonalnością? które argumenty są wymagane a które nie?
+
+
+// const DogExtended = myExtends(Animal, Dog)
+// const dog = new (DogExtended as any)('Rex')
+
+sugerując się tym co jest w tym test case a nie rozsądkiem wychodzi na to że klasa dziedzicząca ma przyjmowac te same argumenty co nadklasa czyli Animal
+
+no ale co jeśli Animal przyjmuje np argument name i go ustawia w tej klasie
+a Dog przyjmuje breed i też go ustawia?
+
+Klasa która jest zarówno Dog jak i Animal powinna przyjmować argumenty obu klas i je ustawiac
+
+ale skąd wiemy że klasa miała by chcieć po prostu ustawiać pola na podstawie argumentow moze by chciała z nimi coś innego zrobić?
+
+
+
+dobra idziemy dalej ale nie wiem co ma się dziać w MyType. Efekt końcowy ma być taki że function MyType będzie miała wszystkie cechy SuperType i wszystkie cechy SubType. Czyli Dog extends Animal będzie Animal ale i czymś więcej niż animal bo będzie miał psie cechy oraz zwierzęce cechy a nie wyłącznie zwierzęce cechy. No ale co mamy zrobić z tymi args zebranymi?
+
+musimy uruchomić obie dostarczone funkcje ale obie na wspolnym this
+
+możemy wykorzystać po prostu this jaki mamy w MyType? czyli po prostu this w tej funkcji? Nie jest to arrow function więc ma własne this a nie z enclosing scope.
+
+
+Animal.print
+Animal.prototype.greet
+
+czy to ze mamy prototype.greet sprawia że metoda będzie dostępna dopiero na instancji obiektu klasy Animal a .print będzie metodą dostępna na klasie czyli będzie metodą statyczną?  
+
+extended.prototype = Object.create(SubType.prototype)
+
+no dobra extended.prototype teraz nie wskazuje po prostu na SubType.prototype ale jakie są plusy takiego rozwiązania bo ja widzę tutaj po prostu dodatkowy pusty obiekt do przeskoczenia. No i pytanie czy SubType.prototype w prototype tego obiektu to dokładnie ten sam obiekt czy jakaś jego kopia?
+
+Pytanie kontrolne, zanim pójdziesz dalej: jeśli po linijce extended.prototype = SubType.prototype dopiszesz extended.prototype.foo = 42 — na którym obiekcie wyląduje foo? Tylko na MyType, czy również na Dog.prototype?
+
+wyląduje tylko na SubType.prototype czyli tylko na Dog.prototype skoro extended.prototype to alias to wskazuje po prostu na SubType.prototype
+
+a jaka będzie różnica jeśli zrobilibyśmy 
+extended.prototype = Object.create(SubType.prototype)
+i teraz extended.prototype.foo = 42
+skoro extended.prototype wskazuje na obiekt który posiada prototype SubType.prototype (Dog) to foo = 42 będzie na tym obiekcie a nie na prototype 
+
+a no tak Dog musi być pierwszy w łańcuchu bo jeśli Dog czyli podklasa miała by nadpisywać jakieś pole to propagacja i wyszukiwanie tego pola działa tak że zwraca pierwsze pasujące pole czyli najpierw Dog a potem Animal
+
+
+Object.setPrototypeOf(SubType.prototype, SuperType.prototype);
+
+Rozumiem że tutaj nie zmieniamy SubType.prototype tylko że ustawiamy prototyp prototypu SubType?
+
+ok idziemy dalej. Nie zgadzam się z tobą że powinniśmy zrobić tylko Object.setPrototypeOf(extended, SuperType); żeby spełnić step 3 bo okej w tym przypadku print leży akurat na SuperType ale co jeśli by leżał na SubType?
+
+extended.prototype.constructor = extended;   // ← przywrócenie .constructor
+
+Kompletnie tego nie rozumiem. Czym właściwie / gdzie jest konstruktor extended? Czy to jest po prostu function MyType(this: unknown, ...args: [...Parameters<S>, ...Parameters<T>]) {
+    SuperType.apply(this, args);
+    SubType.apply(this, args);
+  }; 
+sygnatura i ciało funkcji MyType? Jeśli tak to przywrócenie konstruktora poprzez = extended ma sens. Ale nie rozumiem extended.prototype.constructor to ten konstruktor leży na prototypie... instancji?
+
+ale extended.prototype to nie MyType.prototype?
+
+
+Rozumiem to tak że chodzi tutaj o ten prototyp constructor funkcji który możemy ustawić za pomocą Object.setPrototypeOf(extended, SubType); a nie poprzez extended.prototype = SubType. Czyli __proto__ odnosi się do tego osobnego łańcucha na którym leżą static metody?
+
+Dog.prototype === Dog.__proto__       : false   [dwa różne obiekty]
+
+ale ja tutaj widzę Dog.prototype czyli odnosimy się do prototypu funkcji a nie do tego co jest na instancji bo Dog to nie jest instancja tylko funkcja.
+
+Faktyczny prototyp samej funkcji Dog (to, do czego Dog deleguje) to Dog.__proto__ / Object.getPrototypeOf(Dog).
+
+d.__proto__ === Dog.prototype  : true 
+
+Czyli skoro __proto__ jest użyte na Dog.__proto__ to odnosi się do prototypu funkcji. A kiedy jest użyte na instancji obiektu tej funkcji czyli d.__proto__ to odnosi się do prototypu dostepnego na instancji czyli Dog.prototype. Zatem kontekst wykorzystania __proto__ zmienia to do czego się on odnosi.
+
+
+
+
+
+
+A:
+new MyType zwraca obiekt który w funkcji MyType jest this na którym ustawiane są properties za pomocą konstruktorów i którego prototype to MyType.prototype. 
+Ale ustawiamy MyType.prototype na obiekt którego prototype to SubType.prototype.
+Więc w efekcie zwracamy obiekt na którym ustawiamy properties za pomocą konstruktorów którego prototype to SubType.prototype.
+
+B:
+wywołanie ExtendedType zwraca obiekt na którym są ustawiane properties za pomocą konstruktorów i którego prototypem jest SubType.prototype. 
+
+Czyli wychodzi na to samo.
+
+
+extended.prototype = Object.create(SubType.prototype);
+
+Co robi ta linia? Ustawia, zmienia MyType.prototype, nie robimy tutaj Object.setPrototypeOf(MyType.prototype). Więc tracimy te dodatkowe ogniwo. Mamy zwrócony obiekt na którym są ustawione properties z konstruktorów i którego prototype to obiekt którego prototype to SubType.prototype. Czyli jest jednak dodatkowe ogniwo bo zwracamy obiekt na którym mamy ustawione properties za pomocą konstruktorów i którego prototype to obiekt którego prototype to SubType.prototype. Natomiast w B zwracamy obiekt którego prototype to od razu SubType.prototype.
+
+
+
+
+
+
+
+
+
+Generic type otrzymuje dwa argumenty Obiekt (Typ) oraz union stringow oznaczających nazwy properties które chcemy wyciągnać z Obiektu (Typu).Chodzi o to aby wyciągnąć z dostarczonego typu te properties które zostały dostarczone w union. 
+
+type Record<K extends keyof any, T> = { [P in K]: T; }
+Construct a type with a set of properties K of type T
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Aby rozwiązać problem Circular References 
+Musimy pamiętać o parach argumentów które juz przetworzyliśmy
+
+aby to osiągnąć możemy stworzyć cache = Map<object, object>
+
+jeśli już prztworzyliśmy tę pare to znaczy że napotkaliśmy pętle
+
+jeśli cache.has(a)
+i jeśli cache.get(a) === b 
+
+no to znaczy że już taka parka była przetwarzana
+
+jeżeli pętla nie wystepuje to kontynuujemy przetwarzanie
+
+Solving Deep Equals:
+
+1. Inputs & Outputs
+Input dwie values a oraz b (any type)
+Output: boolean
+
+2. Approach
+
+Base case: if a === b return true
+Type Check: if typeof się różni lub jeden jest nullem to zwracamy false
+
+Recursion:
+Jeśli mammy do czynienia z Arrayem to najpierw porównujemy length a następnie każdy item
+Jeśli z obiektem to porównujemy keys length, key existence a następnie każdą value
+
+Detekcja cykli:
+Wykorzystać Map do śledzenia odwiedzonych par
+
+if (a === b) return true;
+if (typeof a !== typeof b) return false;
+
+co wiemy o inputach po tych ifach?
+
+że nie są strictly equal zatem mogą to być np. referencje do obiektów
+wiemy również że mają ten sam typ
+
+po tych ifach nie może dojść do sytuacji np. że a to array a b to object
+if (typeof a !== typeof b) return false; ten if nam to zapewnia
+
+czyli jeśli a to array to b również
+
+
+co to są cykle o różnym kształcie?
+
+
+export const deepClone = <T>(a: T, cache = new Map()): T => {
+
+o co chodzi w tej sygnaturze funkcji?
+
+zwłaszcza z <T>(a: T,
+
+myślałem że generic constrainty daje się po lewej stronie =
+
+w cache przechowujemy referencje obiektu jako key a value to clone
+
+case "object":
+      const clone = {};
+	  
+może przeiterować się po key value pairs przekazanego obiektu a?
+
+
+Co zwraca Object.entries([2, 3])?
+
+array to obiekt który jako klucze ma numery indeksów 0,1,2...
+
+nie bardzo wiem o co ci chodzi w 4.
+
+co to TDZ
+
+Error:
+
+case "array": {
+
+      const clone: any[] = [];
+
+      for (const [key, value] of Object.entries(a)) {
+        clone[key] = deepClone(value, cache);
+      }
+
+      return clone;
+    }
+
+też error a jaka to jest właściwie różnica?
+
+case "array": {
+      const clone: Array<any> = [];
+
+      for (const [key, value] of Object.entries(a)) {
+        clone[key] = deepClone(value, cache);
+      }
+
+      return clone;
+    }
+
+
+
+T jest niezwiązane, więc kompilator nigdy nie udowodni, że twój klon jest typu T. Ty to wiesz, on nie. Jakiego mechanizmu TS używa się, gdy programista wie więcej niż kompilator?
+
+rzutowanie? 
+return clone as T;
+
+skoncozne na 
+chat: Deep clone z obsługą...
+
+dartrix, inkay
+
+
+typeof ({}).entries
+dlaczego tutaj owinąłeś ten {}
+
+
+P2: Skoro tak — ile gałęzi musi mieć twoja funkcja? Nie cztery. Ile?
+
+wygląda na to że tylko {} nie ma entries a Map, Set i [] mają
+więc dwie gałęzie
+
+return new Date(a as any) as T;
+
+dlaczego akurat a as any?
+
+
+
+
+
+.self przechowuje referencje do obiektu w którym się znajduje
+
+do deepClone(value, cache)
+jako value przekazujemy referencje do a
+
+wtedy w tym kolejnym wywołaniu deepClone robimy cache.get(a)
+
+a pod tą referencją jest const clone z poprzedniego wywolania
+zatem zwracamy cachedClone czyli referencje do tamtego clone
+
+
+a teraz załóżmy że cache.set(a, clone); jest dopiero po pętli
+i oczywiście w takim przypadku doszło by do zapętlenia
+
+a dlaczego dokładnie?
+
+bo cachedClone w kolejnym wywołaniu deepClone nie zahamowałby wykonywania funkcji
+i doszło by wtedy w pętli do kolejnej próby klonowania .self z a
+
+
+skonczone na dopytać się o pytania powyżej! i przeczytac code review claude
+
+poprosić o to aby wszystkie poboczne tematy związane z zadaniem jakie były czyli moje pytania i odpowiedzi na nie również były zawarte we wpisach może w osobnej sekcji. Bo nie chcę żeby to przepadło. Więc jeśli we wcześniej wygenerowanym wpisie ich nie dodałeś to wygeneruj nowy wpis z ich uzględnieniem.
+
+pytanie z nietypowym dla mnie zapisem <T> w obecnej syganturze deepclone
+
+git remote set-url origin https://github.com/damianprog/senior-fe-prep-challenges.git
+
+question:
+
+Array.isArray(target) vs target instanceof Array
+
+question:
+instruktor umieścił cache.set po pętli entries set
+
+mam w folderze dwa pliki o podobnych nazwach deep-clone.vanila.ts oraz deep-clone.vanila copy.ts a kiedy uruchamiam bun src\problems\10-deep-clone\deep-clone.vanila copy.ts to uruchamia się ten drugi plik a nie ten w komendzie.
+
+
+wygląda na to że clone trzyma referencje do tego samego { b: 1 } co oryginalny obiekt
+
+
+
+
+
+Zaimplementować własny odpowiednik utility type Readonly<T>
+
+jakiś constraint?
+
+chyba chodzi nam tylko o obiekty
+
+jak wygląda constraint który mówi że przekazany type musi być jakimkolwiek obiektem?
+
+ale może arrays też chcemy mrozić?
+
+@example mówi tylko o obiektach
+
+ale arrays to też obiekty w których klucze to numbers
+
+może zostawmy constraint na potem 
+
+zatem jak ma wyglądać ciało?
+
+może jakaś iteracja keyof czy coś
+a jak działa keyof i jakie ma zastosowanie i gdzie dokładnie?
+
+keyof T daje union nazw propeties na obiekcie
+w połączeniu z Mapped Type daje możliwość przeiterowania się po properties obiektu
+i dzięki temu możemy "coś" zrobić z każdym property na obiekcie
+
+to brzmi jak coś bardzo blisko rozwiązania
+
+tylko co zrobić z tą property?
+
+TypeScript includes the readonly keyword that makes a property as read-only in the class, type or interface.
+
+więc 
+
+type MyReadonly<T> = {
+  readonly [Property in keyof T]: T[Property];
+};
+
+To jest rozwiązanie
+
+question:
+
+type Arrayish = { [n: number]: unknown };
+type A = keyof Arrayish;
+    
+type A = number 
+ 
+type Mapish = { [k: string]: boolean };
+type M = keyof Mapish;
+    
+type M = string | number
+
+Note that in this example, M is string | number — this is because JavaScript object keys are always coerced to a string, so obj[0] is always the same as obj["0"].
+
+Dlaczego w takim razie type A to tylko number a nie string | number?
+
+type A - tak ? przeżył 
+type A = {
+    readonly a?: string | undefined;
+}
+Takiego wyniku bym oczekiwał
+
+type B daje string[] no i co w związku z tym? jak mam to rozumieć?
+
+type C daje type C = MyReadonly<{
+ a: 1;
+}> | MyReadonly<{
+ b: 2;
+}>
+
+Czy to jest union wyników wywołań dwóch MyReadonly?
+
+
+type Suspect<T> = { readonly [P in keyof T as P]: T[P] };
+type X = Suspect<string[]>;   // wciąż readonly string[]?
+
+okazuje się że type X jest wersją naiwną czyli to już nie jest typ homomorficzny
+
+b. zwraca string i jak mam to rozumieć? Nie jest to obiekt przecież a i tak jakoś działa.
+
+c. myślę że będzie sie dało modyfikowac n.user.name ale powiedz o tym więcej
+
+
+
+
+
+
+
+
+
+Tuple to Object
+
+Dostajemy na wejściu readonly array czyli Tuple 
+i chodzi o to aby przemienić tę Tuple na Object
+key is basically a value
+
+czyli pewnie trzeba znowu użyć Mapped Type
+ale zaraz bo mamy do czynienia z array
+da sie za pomocą Mapped Type przeiterować po Array?
+
+sprawdzmy co daje keyof tuple
+
+const tuple = ['tesla', 'model 3', 'model X', 'model Y'] as const
+
+type A = keyof tuple;
+
+daje error 
+'tuple' refers to a value, but is being used as a type here. Did you mean 'typeof tuple'?
+
+no to sprawdźmy typeof tuple
+
+to daje nam 
+
+type A = readonly ["tesla", "model 3", "model X", "model Y"]
+
+ale mamy za cel przeiterowanie sie po tych stringach w array
+
+type A = keyof typeof tuple;
+
+daje
+
+type A = keyof readonly ["tesla", "model 3", "model X", "model Y"]
+
+i co w związku z tym?
+
+dokumentacja mówi:
+The keyof operator takes an object type and produces a string or numeric literal union of its keys.
+
+to da sie coś zdziałać tym keyof z array?
+
+jak zdobyć unie literałów złożoną z elementów tego array?
+
+wtedy może dałoby sie mapped type przeiterować po tej uni literałów
+
+a potrzebna jest konkretnie unia literałów aby sie przeiterować po tych elementach?
+
+nie mam pomysłów chyba więcej
+
+
+type A = keyof typeof tuple
+type B = A extends infer U ? U : never   // albo najedź na przypisanie poniżej
+declare const x: A
+//              ^? sprawdź co pokazuje hover
+
+a co tutaj oznacza infer U?
+znam infer z wyłuskiwania tego co zwraca funkcja
+
+Type 'unique symbol' is not assignable to type 'keyof readonly ["tesla", "model 3", "model X", "model Y"]'.
+
+no ciągle jest mowa o keyof readonly [...]
+
+const y: keyof typeof tuple = Symbol()
+
+Type 'unique symbol' is not assignable to type 'keyof readonly ["tesla", "model 3", "model X", "model Y"]'.ts(2322)
+'y' is declared but its value is never read.ts(6133)
+const y: keyof readonly ["tesla", "model 3", "model X", "model Y"]
+
+nie wygląda mi to na rozwiniętą unie
+
+question:
+
+T extends any[]
+
+a właściwie to jakie są różnice pomiędzy 
+T extends any[], T extends [any], T extends [...any] i może jeszcze jakieś?
+
+Type 'readonly ["tesla", "model 3", "model X", "model Y"]' does not satisfy the constraint 'any[]'.
+  The type 'readonly ["tesla", "model 3", "model X", "model Y"]' is 'readonly' and cannot be assigned to the mutable type 'any[]'.
+
+czyli nie da sie przypisać niemutowalnego arraya do type z bramką która wymaga mutowalności.
+
+No tak bo readonly to nie dodatek tylko wręcz przeciwnie, odjęcie funkcjonalności
+
+Załóż, że ktoś woła TupleToObject<[true, 1, {}]>. Czy {} może być kluczem obiektu? Jaki wbudowany typ TS opisuje „cokolwiek, co legalnie może być kluczem"? (Podpowiedź: dwa słowa złączone, drugie to Key.)
+
+kurde coś mi dzwoni bardzo blisko ale nie wiem, powiedz mi bo to ciekawe
+
+PropertyKey
+
+ważne rzeczy:
+
+const a: readonly number[] = [1, 2]  // OK — mutowalna tablica spełnia readonly
+const b: number[] = a as readonly number[]  // błąd — readonly nie spełnia mutowalnej
+
+Praktyczny wniosek dla constraintów: jeśli piszesz generyk, który tylko czyta z tablicy, dawaj constraint readonly — inaczej odetniesz wszystkich użytkowników as const, czyli w type-challenges praktycznie wszystkich.
+
+Masz teraz oba brakujące elementy. Sklej readonly + PropertyKey w constraint, dołóż mapped type po T[number] i wklej wynik.
+
+ale moment jeszcze mam pytanie: "a właściwie to jakie są różnice pomiędzy 
+T extends any[], T extends [any], T extends [...any] i może jeszcze jakieś?"
+
+question:
+any[]
+PropertyKey[]
+
+ale to w takim razie to co jest przed [] mówi czym wolno indeksować ten array?
+
+skonczone na poczytać co tam claude jeszcze mowił w czacie Tuple to Object type challenge
+
+T extends readonly PropertyKey[] w tym przypadku oznacza że chcemy tablice która daje się indeksowac możliwymi rzeczami do poprawnego indeksowania czy PropertyKey odnosi się do wartości?
+
+type tescik = TupleToObject<string[]>;
+
+bo tutaj to ja bym raczej string[] rozumiał jako array string elementow
+
+Dwa pytania na dokładkę, żeby sprawdzić, czy rozumiesz brzegi tego, co napisałeś
+
+
+
+
+
+
+
+
+
+
+
+Stringify 
+
+chodzi o to aby z otrzymanej wartości zrobić string który opisze jej strukture
+także jeśli mamy do czynienia z primitive no to wynik to po prostu 
+ten primitive ubrany w stringa
+
+jeżeli mamy do czynienia z obiektem to wynikiem ma byc 
+string opisujący jego strukture
+
+rozumiem że ma to być deep opis
+
+czyli jesli obiekt ma w property wartość jako referencje do innego obiektu
+to w efekcie powinnismy otrzymac string opisujący zewnetrzy obiekt wraz z zagnieżdżonym obiektem do którego trzyma referencje
+
+question:
+przypomnieć sobie o co dokładnie chodziło z cyrkularnymi referencjami o różnych kształtach
+
+jeśli wykryjemy circular referencje czyli referencje obiektu do samego siebie
+to jako value tej property dajemy tylko [Circular]
+
+było sugerowane aby sugerować się deepEquals
+
+jeśli a to jest primitive to ten kod to powinien prawidłowo rozwiązać
+
+if (!a || typeof a !== "object") {
+    return `${a}`;
+}
+  
+więc switch case null można wyrzucić bo przecież null to falsy value więc powyższy warunek go obsłuży
+
+to samo sie tyczy wszystkich primitives w switch 
+
+dlaczego cache tutaj to jest Set?
+
+a czym ma być cache tutaj żeby wykrywać circular references?
+
+dlaczego nie tak jak w deepEquals / deepClone czyli po prostu Map 
+gdzie kluczem jest referencja a wartoscią obiekt?
+
+jeśli wykryjemy circular reference to funkcja ma zwrócić "[Circular]"
+
+ale dlaczego set?
+
+a no dlatego że trzymali byśmy w nim referencje
+i to tyle bo jeśli w secie jest referencja obiektu który obecnie wpadł do stringify to funkcja ma zwrócić "[Circular]"
+
+a co robimy dla object, map, array, set?
+coś wspólnego czy nie?
+
+na pewno chcielibyśmy przemierzyć te struktury danych
+
+no to entries() by sie nie przydało?
+
+a co z użyciem toString()?
+
+toString() chyba opiera się na płytkim odzwierciedleniu struktury 
+
+a co nam da array.toString()?
+
+to co byśmy chcieli czy jakieś śmieci typu [Object object]?
+console.log(map.toString());
+// Expected output: "[object Map]"
+
+czyli syf
+
+zacznijmy od object a ewentualnie potem się to zunifikuje
+
+❯ console.log("a: ", a);
+a:  {
+  b: "c",
+}
+
+wziąć to pod uwagę?
+
+a backticks?
+
+chyba nie da sie tego obejść 
+chyba trzeba samemu budować string od podstaw
+
+question:
+czy konkatenacja stringa poprzez += to dobry pomysł zwłaszcza w tym problemie?
+
+gdzie umiescic cache.add i czy to ma tutaj znaczenie?
+
+prześledźmy scenariusz że trafia do nas obiekt z circular reference
+
+ale przecież sam fakt że przerabialiśmy obiekt z taką referencją wcale nie musi oznaczac circular reference
+
+const a = {
+  tescik: 1,
+};
+
+const b = {
+  q: a,
+  w: a,
+};
+
+console.log(stringify(b));
+
+{ q: { tescik: 1 }, w: [Circular] }
+
+czyli obecne rozwiązanie problemu circular references jest błędne
+
+no i co w takim przypadku bysmy dostali dla property "w"?
+oczywiście "[Circular]"
+
+niech na razie tak zostanie ale pamiętajmy o tym
+
+tylko jeżeli mamy do czynienia ze stringiem to chcemy mieć to primitive value w ""
+
+return typeof a === "string" ? `"${a}"` : `${a}`;
+
+jeżeli stringify jak sama nazwa wskazuje ma zwracać zawsze stringa to backtick muszą zostać bo nie chcemy zwracać innego primitive niz stringa
+
+ * - map:       Map{a => 1}     → '{ a: 1 }'
+ 
+wygląda na to że dostając map chcemy zwrócić to samo co w przypadku object
+
+switch cases object i map już się proszą o scalenie
+
+
+* - array:     
+[1, "a", true]   → '[1,"a",true]'
+
+const a = {
+  tescik: 1,
+};
+
+const b = {
+  q: a,
+  w: a,
+};
+
+
+Naprowadzenie: narysuj drzewo rekurencji dla b = {q: a, w: a}. W momencie gdy przetwarzasz w, czy a jest jeszcze na stosie wywołań? A dla circular.self — czy circular jest na stosie?
+
+
+W momencie gdy przetwarzasz w, czy a jest jeszcze na stosie wywołań? - nie
+A dla circular.self — czy circular jest na stosie? - tak!
+
+Czyli twój Set przechowuje w tej chwili historię, a potrzebujesz ścieżki. Dwie techniki na zamianę jednego w drugie:
+
+(a) coś zrobić z elementem po powrocie z rekurencji — jakiej metody Set jeszcze nie użyłeś?
+
+(b) nie mutować wspólnego zbioru, tylko przekazywać w dół coś innego — co?
+
+const a = {
+  tescik: 1,
+};
+
+const b = {
+  q: a,
+  w: a,
+};
+
+const circular: any = { a: 1 };
+circular.self = circular;
+
+a. usuwanie z set a jeżeli skonczy sie rekurencja dla value a
+w pętli dodać jakiś warunek usuwający?
+
+const x: any = {};
+x.a = x;
+x.b = x;
+
+po powrocie z rekurencji dla a ze słusznym wynikiem [Circular]
+usuwamy x z cache i wtedy sie zapętla
+
+Zanim dopiszesz — pytanie: czy Set, który zawiera sam siebie, w ogóle jest możliwy do zbudowania? A Map jako klucz samej siebie?
+
+const ex = new Set();
+ex.add(ex);
+
+no da sie
+
+const mx = new Map();
+mx.set("mx", mx);
+
+map tez sie da
+
+skonczone na chat Stringify implementation review
+
+
+
+
+
+
+
+Promise: Basic Logic
+
+musimy się upewnić że callbacks które uruchamiamy uruchamiają się w 
+microtask queue
+
+question:
+jak?
+
+są dwa typy asynchronous queue w JS: timeout queue oraz microtask queue
+Promise jest wykonywane w microtask queue
+
+question:
+zgłębić temat queues w JS.
+
+Promise: How it works
+new Promise(executor)
+
+Executor Function to jest synchroniczna funkcja lub proces który chcemy wykonać
+w promise. Może to być asynchroniczny call do servera lub po prostu synchroniczna funkcja z jakąś logiką. Jest to coś co definiuje User
+
+podczas gdy proces jest wykonywany i awaited można zarejestrować dwa typy handlers
+Success handler czyli then handler oraz catch handler który zajmuje się wyjątkami
+
+question:
+czyli z tego wynika że wewnątrz Promise trzeba wykonywać asynchroniczną logikę skoro jest tu powiedziane że "podczas gdy proces jest wykonywany i awaited można zarejestrować dwa typy handlers".
+
+aby wykonać then lub catch handlers potrzebujemy rozwiązać (resolve) promise
+nazywa się to Promise settlement
+
+także aby settle a promise należy wywołać albo resolve function albo reject function wewnątrz naszej executor function.
+Wywołanie Reject function zmieni status naszej promise na "rejected"
+a wywołanie Resolve function zmieni status promise na "fulfilled"
+
+Po zrobionym promise settlement możemy wywołać then bądź catch handlers
+
+question:
+dlaczego resolve() i reject() są metodami statycznymi w klasie
+a then() i catch() nie są metodami statycznymi
+
+
+console.log('A')
+setTimeout(() => console.log('B'))
+Promise.resolve().then(() => console.log('C')).then(() => console.log('D'))
+queueMicrotask(() => console.log('E'))
+console.log('F')
+
+Rozumiem że zaczynamy od drenażu microtasków?
+Czyli najpierw się wykona A.
+Po wykonaniu A kolejka microtask jest pusta.
+Następnie dodajemy do macrotask queue setTimeout i ten setTimeout zawiera callback B czyli ten callback B jest związany z wykonaniem macrotaska setTimeout?
+a swoją drogą jak wygląda dodawanie do kolejek?
+Może jest tak że najpierw nic nie wykonujemy tylko lecimy po wszystkich linijkach i najpierw tylko zapełniamy kolejki a dopiero potem one się wykonują w odpowiedniej kolejności? No bo jeśli mieli byśmy dodawać do kolejek i od razu je wykonywać idąc linijka po linijce to chyba wykonamy wszystko po prostu synchronicznie i logika priorytetów kolejek nie jest zachowana.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
