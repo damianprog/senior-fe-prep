@@ -783,6 +783,106 @@ Następnie dodajemy do macrotask queue setTimeout i ten setTimeout zawiera callb
 a swoją drogą jak wygląda dodawanie do kolejek?
 Może jest tak że najpierw nic nie wykonujemy tylko lecimy po wszystkich linijkach i najpierw tylko zapełniamy kolejki a dopiero potem one się wykonują w odpowiedniej kolejności? No bo jeśli mieli byśmy dodawać do kolejek i od razu je wykonywać idąc linijka po linijce to chyba wykonamy wszystko po prostu synchronicznie i logika priorytetów kolejek nie jest zachowana.
 
+pierwszy macrotask jest to "uruchom ten skrypt" run-to-completion
+
+
+albo tylko zapamiętuje reakcję w środku promise'a, żeby wrzucić ją później. - 
+nie rozumiem co to jest reakcja?
+
+3. Twoja hipoteza „najpierw lecimy po wszystkich linijkach i zapełniamy kolejki"
+Dla tego konkretnego snippetu: tak, - Też nie rozumiem 
+
+setTimeout nie jest macrotaskiem. setTimeout to zwykłe, w pełni synchroniczne wywołanie funkcji — wykonuje się natychmiast,
+ale jak natychmiast? to skoro nie jest macrotaskiem to w takim razie jest microtaskiem także nie wykonuje sie natychmiast tylko najpierw jest wrzucany do kolejki microtasków, tak?
+
+co to moment rejestracji kiedy on ma miejsce? przed wrzuceniem do kolejki robimy w ten sposob kandydata do wrzucenia do kolejki?
+
+
+
+czyli console.log("grzyb") nie jest mikrotaskiem bo gdyby był to przed wykonaniem został by dodany do kolejki microtasków?
+
+Wykonuje się na stacku, dokładnie tak samo jak Math.max(1, 2) - na jakim stacku?
+
+wcześniej napisałeś mi tabelke w której było
+Co ląduje gdzie: i w kolumnie Macrotask (task queue) było między innymi setTimeout, setInterval. a teraz sie okazuje że setTimeout wykonuje się synchronicznie tylko że jest rejestrowane że po podanym czasie podana callback funkcja ma być dodana do kolejki macrotasków. To wstawienie setTimeout do kolumny "Macrotask" było takim uproszczeniem że aż wprowadzało w błąd.
+
+call stack to struktura LIFO w ktorej silnik trzyma funkcje aktualnie w trakcie wykonywania
+
+function a() { b() }
+function b() { console.log('x') }
+a()
+
+Struktura LIFO dla tego snippetu to będzie
+
+console.log
+b
+a
+
+czyli najpierw wykonujemy funkcje a() więc ta jest wrzucana do struktury LIFO
+następnie z racji że a() wywołuje b() to dorzucamy na szczyt stosu LIFO b()
+i z racji że w b() jest console.log to dorzucamy go znowu na szczyt stosu LIFO otrzymując taki stos:
+
+console.log
+b
+a
+
+w którym zgodnie z zasadą LIFO najpierw wykona się ostatnie wrzucone wywołanie czyli console.log
+
+question:
+Jak wygląda praca napełniania, opróżniania kolejek wraz z wykonywaniem call stacku? Co się dzieje i kiedy? Zobaczyć wykonywanie się przykładowego kodu ze wszystkim dokładnie krok po kroku. Najlepiej zobaczyć taki trace dla różnych snippetów a następnie poćwiczyć przewidywanie kolejności. 
+
+wywołanie funkcji to wrzucenie na stos LIFO natomiast return lub koniec funkcji to zdjęcie ze stosu
+
+nie wiem co to pętla zdarzeń do czego to się odnosi?
+
+Zadanie z kolejki = „zawołaj tę funkcję na pustym stosie". Pętla wyjmuje callback,
+
+Co to sa pętla rozumiem że chodzi o pętle zdarzeń ale nie wiem co to jest i jak działa
+
+Pętla wyjmuje callback, kładzie jego ramkę na pusty stos, ten kod wykonuje się do końca (budując i zwijając swój stos)
+
+a dlaczego wykonuje sie do końca? jak to jest z tym kiedy coś sie wykonuje a kiedy jest jedynie wrzucone na stos / do kolejki?
+
+Stąd bierze się „run-to-completion": pętla fizycznie nie ma jak wtrącić się w środek,
+
+Nie rozumiem co to znaczy że pętla miała by się "wtrącić" w środek? Środek czego?
+
+
+Pętla zdarzeń nie jest częścią języka JavaScript tylko jest częścią środowiska uruchomieniowego (przeglądarka, Node, Bun) i co bardzo ciekawe jest co kawałek kodu w C++. Naprawdę? czyli środowisko uruchomieniowe jest napisane częściowo w C++ czy tylko wywołuje czasami C++ czy może jest całe w C++ jak to działa i współgra ze sobą? Może i współgra jakoś międzyjęzykowo?
+
+Pętla zdarzeń uruchamia nasz kod w JS
+
+while (true) {
+  const task = macrotaskQueue.shift()   // weź JEDEN task (czekaj, jeśli pusto)
+  if (task) task()                      // ← tu wykonuje się Twój kod, stos rośnie i się zwija
+
+  while (microtaskQueue.length > 0) {   // CHECKPOINT: drenuj do pustej
+    microtaskQueue.shift()()
+  }
+
+  if (czasNaKlatkę) render()            // w przeglądarce
+}
+
+JS ma jeden wątek
+
+skonczone na 
+Śledzić Traces narzędziem do śledzenia traces i wyciągać wnioski i je zapisywac
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
