@@ -952,6 +952,95 @@ Natomiast Promise który występuje w specyfikacji ECMAScript działał by norma
 Stąd też zaskakujący wniosek: mikrotaski są w spec języka, macrotaski nie. Dlatego Promise działa wszędzie tak samo, a setTimeout ma różne zachowania brzegowe w przeglądarce i w Node.
 
 
+Co host robi konkretnie z Twoim timerem:
+
+Przeglądarka: trzyma listę timerów. Odliczanie nie odbywa się w wątku JS — robi to system operacyjny i inne wątki przeglądarki.
+
+Gdy czas minie, host dokłada task do kolejki.
+
+question:
+zbadać powyższe zdanie w Event loop trace. Czy to na pewno jest tak że czas mija i jest dodawany task do kolejki bo z tego co kojarzę to była sytuacja że timer już dawno minął kiedy task był dodawany do kolejki co by sugerowało że to nie jest tak jak jest powiedziane w tym zdaniu że czas mija i host dokłada task do kolejki.
+
+
+console.log('start')
+setTimeout(() => console.log('timeout'), 0)
+console.log('end')
+
+Rozumiem że "uruchom ten skrypt" to macrotask
+
+Pętla wywołuje task console.log a to wywołanie jest tym co tworzy ramkę na stosie
+
+question:
+nie bardzo rozumiem jak to najpierw jest wywołanie a dopiero potem ramka ląduje na stosie?
+myślałem że jest na odwrót. 
+Myślałem że napotykamy console.log i ten task jest wrzucany na stos i dopiero potem wywoływany
+
+Claude:
+Moja „korekta" była pedantyczna i wprowadziła Cię w błąd — przepraszam. 
+Twoja intuicja była poprawna, moje sformułowanie nie. 
+Ramka faktycznie ląduje na stosie zanim wykona się ciało funkcji.
+
+Anatomia wywołania funkcji — po kolei
+
+Gdy silnik napotyka console.log('start'), dzieje się to w tej kolejności:
+
+oblicza, co wywołać (console.log) i z czym ('start'),
+tworzy ramkę — zapisuje argumenty, miejsce na zmienne lokalne i adres powrotu (czyli: „gdzie mam wrócić, gdy skończę"),
+
+question:
+a gdzie ma wrócić? Do dalszego wykonywania snippetu?
+
+kładzie ramkę na szczyt stosu,
+dopiero teraz skacze do ciała funkcji i je wykonuje,
+return (lub koniec ciała) → zdejmuje ramkę i wraca pod zapisany adres.
+
+Czyli dokładnie tak, jak myślałeś: najpierw ramka na stosie, potem wykonanie ciała. 
+Ramka jest wręcz warunkiem wykonania — bez niej ciało nie miałoby gdzie trzymać argumentów ani skąd wiedzieć, dokąd wrócić.
+
+Napisałem wcześniej:
+„Pętla wywołuje task console.log, ten task jest wrzucany na stos"
+
+ALE
+console.log nie jest taskiem i pętla zdarzeń nigdy go nie wywołuje. Wywołuje go nasz kod - Ten sam skrypt którego ramka leży już na stosie
+
+Zdanie do zapamiętania: na stos trafiają ramki, do kolejek trafiają taski, a jedno z drugim styka się tylko w momencie, gdy pętla wywołuje task — bo to wywołanie tworzy pierwszą ramkę na pustym stosie.
+
+console.log('A')
+setTimeout(() => console.log('B'))
+Promise.resolve().then(() => console.log('C')).then(() => console.log('D'))
+queueMicrotask(() => console.log('E'))
+console.log('F')
+
+najpierw na stos wywołań trafia... momencik
+
+task: skrypt
+Skrypt jako pierwszy task — ramka na pusty stos.
+
+question:
+A no tak bo "run-to-completion" czyli skrypt to Macrotask i pętla zdarzeń go wywołuje. Ale można sie pomylić bo o skrypcie mówimy że to task i że po jego wywołaniu tego macrotaska na stos trafia ramka. W sensie można mylnie stwierdzić że ramka to task bo określenia są w tym zdaniu troche wymieszane.
+
+Claude:
+Task nigdy nie „trafia na stos". Task leży w kolejce. Pętla go wywołuje — i to wywołanie, jak każde inne wywołanie funkcji w JS, tworzy ramkę. Ramka jest skutkiem obsłużenia taska, nie jego przeniesieniem.
+
+question:
+ale znowu sugerujesz że najpierw jest wywołanie funkcji a dopiero potem sie tworzy ramka a już ustaliliśmy że najpierw funkcja trafia na stos a dopiero potem jest wykonywana. Ale chyba ci chodzi tutaj mówiąc o wywołaniu funkcji że to macrotask jest wywoływany a wewnątrz niego wywołujemy.... nie wiem w sumie
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
