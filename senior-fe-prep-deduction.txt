@@ -868,35 +868,88 @@ JS ma jeden wątek
 skonczone na 
 Śledzić Traces narzędziem do śledzenia traces i wyciągać wnioski i je zapisywac
 
+console.log('start')
+setTimeout(() => console.log('timeout'), 0)
+console.log('end')
+
+Pierwszy task jaki pętla zdarzeń wrzuca na call stack LIFO (stos wywołań) to task "uruchom ten skrypt"
+
+Claude:
+"Drobne przybliżenie w Twoim opisie: „pętla zdarzeń wrzuca na call stack task «uruchom ten skrypt»". Ściślej — pętla wywołuje ten task, a to wywołanie jest tym, co tworzy ramkę na stosie. Stos nie jest miejscem, do którego się coś „wrzuca" z zewnątrz; ramka powstaje jako skutek uboczny wywołania funkcji."
+
+Następnie na call stack trafia console.log który się wykonuje od razu i zostaje zdjęty z call stack. Póki co nic nie trafiło do żadnej kolejki
+
+Następnie na call stack trafia setTimeout, która to funkcja jest w pełni synchorniczna, jest wykonywana od razu podobnie jak wcześniej console.log. Z tym że wywołanie setTimeout "rejestruje" u hosta timer i swraca id.
+Kolejki są wciąż puste callback jest póki co w rejstracjach. 
+
+question:
+rozumiem na czym polega i po co jest rejestracja ale u jakiego hosta? Czym jest host i jak działa?
+
+Następnie na call stack trafia console.log który też jest wykonywany natychmiastowo zatem wypisujemy "end" i zostaje usunięty z call stack.
+
+W tym momencie następuje koniec skryptu. Task uruchom ten skrypt zostaje usunięty z call stack. Dopiero w tym momencie pętla zdarzeń odzyskuje sterowanie. Dla przypomnienia kod pętli zdarzeń wygląda następująco
+
+while (true) {
+  const task = macrotaskQueue.shift()   // weź JEDEN task (czekaj, jeśli pusto)
+  if (task) task()                      // ← tu wykonuje się Twój kod, stos rośnie i się zwija
+
+  while (microtaskQueue.length > 0) {   // CHECKPOINT: drenuj do pustej
+    microtaskQueue.shift()()
+  }
+
+  if (czasNaKlatkę) render()            // w przeglądarce
+}
+
+Zatem dotychczas pętla zdarzeń stała na lini if (task) task()
+
+Timer wygasł ponieważ 0ms minęło dawno temu. Host przenosi callback z rejestracji do kolejki macro task
+Tutaj znowu wraca tajemniczy host także jest to luka w pełnym zrozumieniu działania pętli zdarzeń
+
+Zatem w Macrotask queue mamy call back który był przekazany do setTimeout
+
+teraz pętla zdarzeń przechodzi do lini while (microtaskQueue.length > 0)
+zatem kolejka microtasków jest drenowana to znaczy że wszystkie taski jakie są w kolejce microtask queue zostają wykonane zanim przejdziemy dalej. Aczkolwiek teraz kolejka microtask jest pusta.
+
+Przechodzimy do kolejnego obrotu pętli while w pętli zdarzeń
+zatem wyciągany jest z kolejki macrotasków (również LIFO) task którym jest callback który był przekazany do setTimeout.
+Także callback z setTimeout teraz trafia do call stack
+
+Claude:
+"Napisałeś „z kolejki macrotasków (również LIFO)". Nie — stos jest LIFO, kolejki są FIFO. Stąd zresztą nazwy: stack (stos rzeczy, bierzesz z wierzchu) vs queue (kolejka w sklepie, obsługujesz od czoła)."
+
+W ciele tego obecnie wykonywanego callbacku jest console.log który trafia na call stack. Także w tym momencie na callstack mamy 1. console.log 2. wykonywanie ciała callbacku. console.log zostaje wywołany tuż po wrzuceniu go do call stack zatem wypisywany jest "timeout"
+
+Na call stacku zostaje tylko wykonywanie ciała callbacku w którym juz nic nie ma więc callback zwraca i jest ten task usunięty ze stosu call stack. Zatem call stack jest pusty, rejestracja jest pusta oraz obie kolejki są puste.
+
+Pętla czeka bezczynnie na nowe zdarzenia bo while(true) w pętli zdarzeń cały czas działa a skoro tak to co w takim razie wyłącza już bezczynnie działającą pętle zdarzeń?
 
 
+Także największa zagadka powyższego ćwiczenia mianowicie "Czym jest host?"
 
+Trzeba zrozumieć i rozdzielić dwie rzeczy które na codzień zlewają się w JavaScript
 
+1. Silnik (engine) - V8 (Chrome, Node), JavaScriptCore (Safari, Bun), SpiderMonkey (Firefox)
 
+Implementuje wylącznie sam język ze specyfikacji ECMAScript: składnię, parsowanie, obiekty, prototypy, domknięcia, garbage collector, stos wywołań i — uwaga — kolejkę mikrotasków (w spec nazywa się to jobs i job queue).
 
+question:
+ale co to znaczy w tym miejscu "implementuje"?
 
+Także "implementacją" między innymi call stackiem i kolejki microtasków zajmuje się Silnik. W spec kolejka microtasków nazywa się jobs i jobs queue.
 
+question:
+a co to jest spec? dokumentacja ECMAScript?
 
+2. Host (środowisko uruchomieniowe, embedder) - przeglądarka, Node, Bun, Deno. Jest to program napisany w C++/Rust/Zig, który osadza w sobie silnik i dokłada wszystko, czego język sam z siebie nie ma: setTimeout, DOM, fetch, fs, process, KOLEJKĘ MACROTASKÓW ORAZ SAMĄ PĘTLE ZDARZEŃ
 
+question:
+a co to embedder?
 
+setTimeout nie występuje w specyfikacji ECMAScript. Jest zdefiniowany w specyfikacji HTML (dla przeglądarek) i w dokumentacji Node.
+Gdybyś uruchomił goły silnik V8 bez hosta, setTimeout byłby undefined.
+Natomiast Promise który występuje w specyfikacji ECMAScript działał by normalnie.
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+Stąd też zaskakujący wniosek: mikrotaski są w spec języka, macrotaski nie. Dlatego Promise działa wszędzie tak samo, a setTimeout ma różne zachowania brzegowe w przeglądarce i w Node.
 
 
 
