@@ -1186,27 +1186,112 @@ I stąd druga rzecz, którą wrapper musi robić: łapać wyjątki. Jeśli C rzu
 
 
 
+const p = Promise.resolve()
+p.then(() => console.log('C'))
+p.then(() => console.log('D'))
+queueMicrotask(() => console.log('E'))
+
+C E D
+
+Zatem pętla wywołuje macrotaska "uruchom ten skrypt"
+na call stack trafia <script>
+
+Promise.resolve() nie trafia na callstack tylko tworzy się Promise od razu w stanie fulfilled
+
+question:
+a co sie dzieje z const p? trafia gdzieś? Gdzie jest trzymane?
+
+promise p jest już rostrzygnięty zatem job C ląduje w microtask queue
+
+i teraz pytanie p.then(() => console.log('D')) jest wykonywane tak jakby było 
+p.then(() => console.log('C')).then(() => console.log('D'))? 
+Bo jeśli tak to do Promises trafia promise który jest pending a będzie settled dopiero kiedy wykona sie ramka C. Zatem D zostaje zapamiętany jako reakcja.
+
+queueMicrotask(() => console.log('E'))
+
+dorzucamy task do kolejki microtask zatem kolejka microtask obecnie wygląda tak:
+job C 
+job E
+
+w tym momencie ramka <script> zostaje zdjęta z call stack bo skrypt się wykonał
+
+zatem wykonał się macrotask wywołany przez pętle zdarzeń
+
+pętla zdarzeń odzyskuje sterowanie i przechodzi do drenażu microtasków
+
+wywołuje joba (wrapper)
+
+ramka job
+
+wywołanie C dodaje na call stack ramkę C 
+
+wywołanie console.log("C") ramka console.log i wypisujemy C
+
+ramka C zwraca undefined po czym zostaje zdjęta
+
+wrapper bierze undefined i woła resolve tej promise w ktorej było C
+
+skoro ta promise jest juz fulfilled to reakcja D zamienia się w taska i trafia do microtask queue
+
+obecny stam microtask queue:
+job E
+job D
+
+zatem drenujemy microtask queue dalej
+bierzemy job E i robimy ramkę E
+wywołujemy console.log dodajemy ramkę tego wywołania do call stack
+wykonujemy ciało console.log, wypisujemy E
+
+call stack pusty
+
+kolejny task z microtask queue i za razem ostatni czyli job D
+dodajemy ramkę D, wykonujemy ciało tej funkcji w kontekscie tej ramki
+dodajemy ramkę wywołania console.log, wykonujemy drukując D
+ostatni promise zostaje roztrzygnięty
+
+Także C E D 
+
+a nie bo C D E bo źle odpowiedziałem na postawione sobie pytanie w tym miejscu
+"i teraz pytanie p.then(() => console.log('D')) jest wykonywane tak jakby było 
+p.then(() => console.log('C')).then(() => console.log('D'))?" 
+
+Otóż odpowiedź to Nie a ja błędnie odpowiedziałem Tak
 
 
+Rozgałęzienie vs łańcuch
 
+Decydujące pytanie przy każdym .then brzmi: na jakim obiekcie go wołasz?
 
+// ŁAŃCUCH — oryginalny snippet
+Promise.resolve().then(C).then(D)
+//                          ↑ wołane na promisie ZWRÓCONYM przez .then(C)
 
+   P0 ──.then(C)──▶ P1 ──.then(D)──▶ P2
+ fulfilled          pending!
+                    D czeka w P1 jako reakcja → kolejka: [C, E]
 
+// ROZGAŁĘZIENIE — dzisiejsze ćwiczenie
+const p = Promise.resolve()
+p.then(C)    // ← wołane na p
+p.then(D)    // ← TEŻ wołane na p. Nie na wyniku poprzedniej linijki.
 
+        p (fulfilled)
+       ╱ ╲
+      C   D     obie reakcje wiszą na tym samym, JUŻ ROZSTRZYGNIĘTYM promisie
+                → obie idą gałęzią „settled" → kolejka: [C, D, E]  ⇒  C D E
 
+Konsekwencja dla Twojej implementacji — i to duża
 
+Skoro na jednym promisie można zarejestrować wiele niezależnych reakcji, to pole nazywa się handlers, a nie handler, i jest tablicą. Gdyby dozwolone było tylko łańcuchowanie, wystarczyłoby jedno pole.
 
+question:
+stertą (heap) jeszcze się nie zajmowaliśmy
 
+Dwie drobne poprawki w Twoim trace
+Promise.resolve() trafia na stos. To normalne wywołanie funkcji (metody statycznej) — dostaje ramkę jak każde inne, tylko bardzo krótko żyjącą. Napisałeś, że nie trafia.
+„reakcja D zamienia się w taska" → w joba. Task to wyłącznie kolejka macro.
 
-
-
-
-
-
-
-
-
-
+Reszta Twojego trace'u — drenaż, wrappery, ramki, kolejność zdejmowania — jest poprawna.
 
 
 
