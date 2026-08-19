@@ -1152,16 +1152,31 @@ Uczciwe doprecyzowanie mojego pseudokodu: jest uproszczony. W Node timery nie s�
 
 Skonczone na analizowaniu luk
 
+question:
+ale to kiedy task trafia z reakcji do kolejki microtasków?
+w momencie jak tylko promise stanie się resolved?
 
+jak promise będzie settled w tym przypadku to oznacza wtedy kiedy microtask C zostanie wyjęty z kolejki microtasków, wywołanie tego microtaska wrzuca na stos wywołań ramkę tego wywołania, wykonuje się ciało (tej ramki można powiedzieć?)
 
+mówmy „wykonuje się ciało funkcji, w kontekście jej ramki"
 
+i wywołujemy console.log ramka tego wywołania trafia na call stack i wykonujemy ciało tego console.log przez co wypisujemy C. Ramka C zwraca undefined a to rostrzyga P1. I to jest moment kiedy reakcja D trafia do kolejki microtasków.
 
+Doprecyzowanie: w kolejce nie leży Twój callback
+W kolejce mikrotasków nie leży C. Leży wrapper, który dopiero wewnątrz siebie woła C. W spec nazywa się to PromiseReactionJob.
 
+pętla wywołuje joba (wrapper)
+  └─ ramka: job
+       ├─ wywołuje C            → ramka: C
+       │    └─ console.log('C') → ramka: console.log → wypisuje C, zdjęta
+       │    C zwraca undefined, ramka C zdjęta
+       └─ wrapper bierze tę wartość i woła resolve(P1, undefined)   ← to robi WRAPPER, nie C
+            └─ P1 → fulfilled; reakcja D zamienia się w joba i ląduje w kolejce
+  ramka: job zdjęta
 
+Czyli precyzyjnie: to nie C rozstrzyga P1 — C nic o P1 nie wie, to zwykła funkcja użytkownika, która po prostu coś zwraca. Rozstrzyga wrapper, bo to on ma dostęp do resolve tamtego promise'a.
 
-
-
-
+I stąd druga rzecz, którą wrapper musi robić: łapać wyjątki. Jeśli C rzuci, wrapper zamiast resolve(P1, ...) woła reject(P1, err).
 
 
 
