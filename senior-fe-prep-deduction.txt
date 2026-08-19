@@ -1025,6 +1025,151 @@ Task nigdy nie „trafia na stos". Task leży w kolejce. Pętla go wywołuje —
 question:
 ale znowu sugerujesz że najpierw jest wywołanie funkcji a dopiero potem sie tworzy ramka a już ustaliliśmy że najpierw funkcja trafia na stos a dopiero potem jest wykonywana. Ale chyba ci chodzi tutaj mówiąc o wywołaniu funkcji że to macrotask jest wywoływany a wewnątrz niego wywołujemy.... nie wiem w sumie
 
+while (true) {
+  const task = macrotaskQueue.shift()   // weź JEDEN task (czekaj, jeśli pusto)
+  if (task) task()                      // ← tu wykonuje się Twój kod, stos rośnie i się zwija
+
+  while (microtaskQueue.length > 0) {   // CHECKPOINT: drenuj do pustej
+    microtaskQueue.shift()()
+  }
+
+  if (czasNaKlatkę) render()            // w przeglądarce
+}
+
+console.log('A')
+setTimeout(() => console.log('B'))
+Promise.resolve().then(() => console.log('C')).then(() => console.log('D'))
+queueMicrotask(() => console.log('E'))
+console.log('F')
+
+Pętla zdarzeń się uruchamia i bierze task "run-to-completion" z kolejki macrotasków
+
+wywołuje ten macrotask i dzięki temu wywołaniu na call stack trafia ramka <script> (czyli run-to-completion?). Czy jest tak że wywołanie macrotaska przez pętle zdarzeń dorzuca na call stack to co w tym macrotasku się znajduje?
+
+Claude:
+
+„Run-to-completion" to nie nazwa taska
+
+Task nazywa się „uruchom ten skrypt" (w spec HTML: task to run the script). Run-to-completion to nie nazwa, tylko reguła obowiązująca każdy task: raz zaczęty biegnie do końca i nic go nie przerwie. Tak jak „jednokierunkowa" nie jest nazwą ulicy, tylko jej właściwością.
+
+wywołanie taska dokłada jedną ramkę, a nie jego zawartość
+Wywołanie taska tworzy dokładnie jedną ramkę — ramkę tego wywołania.
+
+while (true) {
+  const task = macrotaskQueue.shift()   // weź JEDEN task (czekaj, jeśli pusto)
+  if (task) task()                      // ← tu wykonuje się Twój kod, stos rośnie i się zwija
+
+  while (microtaskQueue.length > 0) {   // CHECKPOINT: drenuj do pustej
+    microtaskQueue.shift()()
+  }
+
+  if (czasNaKlatkę) render()            // w przeglądarce
+}
+
+console.log('A')
+setTimeout(() => console.log('B'))
+Promise.resolve().then(() => console.log('C')).then(() => console.log('D'))
+queueMicrotask(() => console.log('E'))
+console.log('F')
+
+Zatem najpierw pętla zdarzeń wywołuje pierwszy macrotask którym jest "uruchom ten skrypt", wywołanie tego taska tworzy na callstack ramkę tego wywołania
+
+Następnie na call stack na którym jest skrypt trafia wywołanie setTimeout
+setTimeout po trafieniu na call stack jest od razu wywoływane i dzięki temu wywołaniu setTimeout rejestruje u hosta callback który ma się wykonać w tym przypadku po 0 sekundach i zwraca id. Callback jeszcze nie trafia do kolejki macrotasków póki co siedzi w rejestracjach.
+
+question:
+A kiedy to dokładnie callback trafia z rejestracji do kolejki macrotasków?
+Jak to się ma do pętli zdarzeń? w którym momencie jest pętla zdarzeń kiedy callback trafia z rejestracji do kolejki macrotasków?
+
+Następnie na call stack trafia wywołanie Promise.resolve() i jest tuż po trafieniu na call stack wywoływane
+
+.then trafia do kolejki microtasków, nie jest jeszcze wywolywane
+kolejne .then trafia do kolejki microtasków, nie jest jeszcze wywolywane
+
+queueMicrotask(() => console.log('E'))
+
+chyba mówi samo za siebie czyli dorzuca do kolejki microtask 
+
+zatem microtask queue (FIFO) w tym momencie wygląda następująco:
+
+pierwszy .then
+drugi .then
+() => console.log('E')
+
+console.log("F")
+
+wywołanie console.log trafia do call stack i od razu jest wywoływane zatem wypisujemy F
+
+dotychczas wypisaliśmy: A F
+
+w tym momencie <skrypt> się wykonał i znika z call stack
+
+pętla zdarzeń odzyskuje sterowanie i zajmuje się drenowaniem kolejki microtasków
+
+więc wykonujemy zgodnie z FIFO najpierw pierwszy .then
+wywołanie console.log('C') trafia na call stack i jest od razu wywoływane
+Zatem drukujemy C
+
+dotychczas wypisaliśmy: A F C
+
+następny microtask czyli kolejne .then
+
+zatem analogicznie jak wyżej i wypisujemy D
+
+dotychczas wypisaliśmy: A F C D
+
+i ostatni microtask w kolejce to jest () => console.log('E')
+więc analogicznie znowu i wypsujemy E
+
+dotychczas wypisaliśmy: A F C D E
+
+w tym momencie pętla zdarzeń wydrenowała wszystkie microtaski z kolejki
+
+Zakładam że to w tym momencie callback z rejestracji trafia do macrotask queue po uprzednim sprawdzeniu czy timer juz minął a minął bo był 0
+
+w kolejnym obrocie pętli zdarzeń bierzemy pierwszy macrotask z kolejki i go wywolujemy
+
+wywolanie macrotaska trafia na callstack 
+
+ciało callbacku czyli wywołanie console.log("B") trafia na callstack i od razu jest wywoływane zatem drukujemy B
+
+result: A F C D E B 
+
+Nie ta kolejność w takim razie sprawdzamy narzędziem do event loop trace gdzie popełniłem błąd
+
+poprawny wynik to: A F C E D B
+
+więc zamiast D E powinno być E D
+
+w takim razie zmyliła mnie logika handlingu promises
+także w tym miejscu jest luka
+
+Claude:
+
+Przeniesienie callbacku do kolejki nie jest zsynchronizowane z żadną linijką pętli zdarzeń. Robi to host, poza wykonywaniem Twojego JS-u. W momencie, gdy timer wygasa, pętla zdarzeń jest najczęściej w środku task() — czyli wykonuje Twój kod. Callback może wylądować w kolejce nawet w trakcie linijki 3 Twojego snippetu, skoro 0 ms minęło natychmiast.
+
+Uczciwe doprecyzowanie mojego pseudokodu: jest uproszczony. W Node timery nie są „wrzucane z zewnątrz", tylko zbierane przez libuv na początku obrotu pętli — jest osobna faza timers, która sprawdza, którym timerom minął czas, i dopiero wtedy tworzy taski. W przeglądarce model jest bliższy mojemu opisowi: timer to task source, a host kolejkuje task w chwili wygaśnięcia. Dla przewidywania kolejności obie wersje dają to samo.
+
+Skonczone na analizowaniu luk
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
