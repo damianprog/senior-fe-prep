@@ -1294,6 +1294,118 @@ Promise.resolve() trafia na stos. To normalne wywołanie funkcji (metody statycz
 Reszta Twojego trace'u — drenaż, wrappery, ramki, kolejność zdejmowania — jest poprawna.
 
 
+Skoro na jednym promisie można zarejestrować wiele niezależnych reakcji, to pole nazywa się handlers, a nie handler, i jest tablicą. Gdyby dozwolone było tylko łańcuchowanie, wystarczyłoby jedno pole.
+
+Stąd settle musi przelecieć całą tablicę i wrzucić do kolejki mikrotasków po jednym wrapperze dla każdego wpisu, w kolejności rejestracji.
+
+Spróbujmy zatem implementować promise
+
+handlers to tablica a handler to pojedynczy handler 
+
+typ handler to obiekt który ma metody onFulfilled, onRejected i co jezcze?
+
+w tablicy handlers rejestrujemy czyli dodajemy obiekty typu handler
+
+Wrapper musi mieć pod ręką cztery rzeczy w momencie wykonania: handlera od sukcesu, handlera od błędu — i parę resolve/reject promise'a zwróconego przez .then
+
+ale rozumiem że onFulfilled oraz onReject to są resolve oraz reject tej promise
+to pozostałe dwa pola to będą resolve i reject innej promise?
+poprzedniej czy następnej?
+
+
+onFulfilled TO NIE resolve
+
+To dwie zupełnie różne role, przypadkiem operujące na tej samej wartości:
+
+
+onFulfilled / onRejected - Czyje to - callback użytkownika, przekazany do .then(fn)
+
+resolve / reject - Czyje to - funkcje sterujące promise'a, stworzone przez konstruktor
+
+
+onFulfilled / onRejected - Co robi - konsumuje wartość — dostaje ją i coś z nią robi
+
+resolve / reject - Co robi - ustawia wartość — przełącza promise w stan settled
+
+
+onFulfilled / onRejected - Kierunek - wartość wchodzi do niego
+
+resolve / reject - Kierunek - wartość wychodzi z niego do promise'a
+
+
+onFulfilled / onRejected - Kto woła - wrapper, w mikrotasku
+
+resolve / reject - Kto woła - executor albo wrapper
+
+
+onFulfilled to „co user chce zrobić z wynikiem". resolve to „przełącznik, który rozstrzyga promise'a". Nigdy nie są tym samym obiektem.
+
+
+do .then jest przekazywany callback i czym on ma być? Gdzie ma być on przypisany?
+
+wynik callbacka przekazanego do .then przekazywany jest do onFulfilled(wynik)
+
+a onFulfilled przekazuje ten wynik do resolve czyli do następnej promise
+
+ewentualnie jeśli onFulfilled rzuci błąd to zamiast resolve wywoływany jest reject(err)
+
+Handler jest mostem między dwoma promise'ami: czyta wartość z poprzedniego, a wynik wpycha do następnego.
+
+type Handler = {
+  onFulfilled: OnFulfilled<any, any> | undefined;
+  onRejected: OnRejected<any> | undefined;
+  resolveNext: (value: any) => void;
+  rejectNext: (reason: any) => void;
+}; 
+
+Dopisane do resolve i reject "next" aby było jasne że będziemy się zajmować kolejną promise
+
+To nie są metody, tylko pola trzymające referencje do funkcji. Handler to zwykły rekord danych, nie klasa z zachowaniem. Różnica jest istotna: nic tu nie ma this.
+
+type OnFulfilled<T, R> = (value: T) => R;
+type OnRejected<R> = (reason: any) => R;
+
+T = typ wartości, którą ten promise trzyma (czyli to, co dostanie callback)
+R = typ, który callback zwraca — a przez to typ wartości następnego promise'a w łańcuchu
+
+MyPromise<T> — T to typ wartości spełnienia. Nie „typ promise'a", tylko typ tego, co z niego wypadnie.
+
+Dlaczego then<R> ma tylko jeden parametr generyczny (tak jest w liście kroków w Twoim zadaniu): T jest już znane — pochodzi z klasy, this je zna. Wnioskować trzeba wyłącznie R, i to z callbacku:
+
+then<R>(onFulfilled?: OnFulfilled<T, R>): MyPromise<R>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

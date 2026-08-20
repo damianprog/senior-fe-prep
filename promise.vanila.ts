@@ -22,7 +22,18 @@ const REJECTED: PromiseStatus = "rejected";
 // - Run tests for then / catch and chaining
 // Step 7: static resolve, static reject
 // - Run tests for statics
-export class MyPromise {
+
+type OnFulfilled<T, R> = (value: T) => R;
+type OnRejected<R> = (reason: any) => R;
+
+type Handler = {
+  onFulfilled: OnFulfilled<any, any> | undefined;
+  onRejected: OnRejected<any> | undefined;
+  resolveNext: (value: any) => void;
+  rejectNext: (reason: any) => void;
+};
+
+export class MyPromise<T> {
   constructor(executor: any) {}
 
   then() {
