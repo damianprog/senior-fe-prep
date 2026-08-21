@@ -1430,6 +1430,155 @@ type Executor<T> = (resolve: (value: T) => void, reject: (reason: any) => void) 
 
 Executor dostaje dwie funkcje i nic nie zwraca. Cała komunikacja idzie przez wywołanie jednej z nich.
 
+Back to moja dedukcja:
+czyli executor otrzymuje w parametrze resolve
+
+konstruktor woła executor przekazując w parametrze resolve
+
+i to dopiero resolve ustawia value tej Promise?
+
+new MyPromise((resolve) => resolve(42))
+//             └────────────────────┘
+//              TO jest executor
+
+a reject gdzie jest przekazywane? 
+bo to też user korzystający z promise definiuje
+
+mamy dwie statyczne metody w klasie MyPromise
+
+static resolve() oraz static reject()
+
+ale jak one są implementowane? i dlaczego są static?
+
+w punkcie 3. Trzy obowiązki konstruktora
+jest powiedziane że konstuktor robi następujące rzeczy:
+
+1. Przygotowuje parę resolve i reject
+No to w takim razie kto określa resolve i reject maszyneria promise czy user?
+
+2. Wywołuje executor(resolve, reject)
+Wiem że executor to jest na pewno coś co definiuje user
+
+To w takim razie to jednak maszyneria promise zajmuje sie określeniem co ma robić resolve i reject
+
+3. Otacza to wywołanie try/catch
+to w catch w takim razie jest wywoływane reject?
+
+Back to claude wymieszany z moją dedukcją:
+
+question:
+Wrócić do tego
+Pułapka z this, o której wspominałem — tu się materializuje. Jeśli napiszesz executor(this.resolve, this.reject), to wyciągasz metody z obiektu i przekazujesz gołe referencje. Gdy user zawoła je jako resolve(42), this w środku będzie undefined. Trzy wyjścia:
+
+4. Jak to wszystko działa razem
+
+Przebieg A — settlement synchroniczny (test p1)
+
+new MyPromise((resolve) => resolve(42))
+
+konstruktor: przygotuj resolve/reject dla TEJ instancji
+a co to znaczy przygotuj dlaczego nie jest tak że raz się definiuje działanie resolve i reject? 
+
+try { executor(resolve, reject) }  ← synchronicznie
+
+czyli konstruktor woła executor napisany przez usera podając mu resolve i reject
+
+ciało executora: resolve(42) ← woła TWÓJ kod
+
+czyli w executorze user postanowił wywołać resolve z parametrem 42
+
+settle('fulfilled', 42)
+
+czyli w resolve wołamy settle przekazując to co user przekazał do resolve
+wraz ze stringiem oznaczającym PromiseStatus
+
+w settle ustawiamy: 
+status = 'fulfilled'
+value = 42
+
+przelej handlers do kolejki mikro  → tablica PUSTA, nic do przelania
+
+tego kroku nie rozumiem kompletnie
+
+konstruktor zwraca gotowy, rozstrzygnięty promise
+
+this w takim razie zwraca?
+
+Następnie
+
+p.then(fn)
+
+utwórz nowy promise P_next (pending)
+
+we funkcji then tworzymy nowy Promise?
+
+handlers.push({ fn, undefined, resolveNext, rejectNext })
+
+Jak już wspomniałem nie mam pojęcia o handlers
+
+1. reject - gdzie się podziało
+
+new MyPromise((resolve) => resolve(42))
+
+reject jest przekazywane — jako drugi argument. User go po prostu nie zadeklarował, bo mu nie było potrzebne. W JS wolno zadeklarować mniej parametrów, niż funkcja dostaje; nadmiarowe są po cichu ignorowane.
+
+ale zaraz o co chodzi z "W JS wolno zadeklarować mniej parametrów, niż funkcja dostaje; nadmiarowe są po cichu ignorowane.". 
+Załóżmy że funkcja nie ma default parameters
+Czyli funkcja jest napisana że przyjmuje dwa parametry 
+user korzysta z funkcji i przekazuje do niej tylko jeden parametr
+i ta funkcja miała by się wykonać?!
+Jasne jest dla mnie że funkcja może otrzymać więcej parametrów niż potrzebuje
+ale mniej?
+
+Back to claude:
+
+new MyPromise((resolve) => resolve(42))
+//             ↑ executor DEKLARUJE jeden parametr
+//               a DOSTAJE dwa, bo konstruktor woła executor(resolve, reject)
+
+Czyli funkcja otrzymuje więcej, niż zadeklarowała — a nie mniej. Nadmiarowy argument (reject) jest po prostu przekazany i nieodebrany. Żadnej magii, żadnego problemu.
+
+znasz to od lat, tylko bez zastanowienia:
+
+js
+[1, 2, 3].map((x) => x * 2)
+
+map woła Twój callback z trzema argumentami — (value, index, array). Ty deklarujesz jeden. Nikt tego nie kwestionuje. .then((v) => ...) działa tak samo.
+
+A drugi kierunek — mniej argumentów niż parametrów?
+
+Też działa. W JS arność nie jest egzekwowana w żadną stronę:
+
+function f(a, b) { console.log('a =', a, '| b =', b, '| arguments.length =', arguments.length) }
+
+f(1)         // a = 1 | b = undefined | arguments.length = 1
+f(1, 2, 3)   // a = 1 | b = 2         | arguments.length = 3
+
+Czyli można przekazać do funkcji więcej argumentów niż funkcja potrzebuje
+ale można też przekazać mniej i funkcja i tak się wykona
+
+
+Klasyczna pułapka z nadmiarowych argumentów, warta zapamiętania na rozmowę:
+
+js
+['1','2','3'].map(parseInt)   // → [1, NaN, NaN]
+
+parseInt przyjmuje (string, radix), a map podaje (value, index). Więc lecą wywołania parseInt('1', 0), parseInt('2', 1), parseInt('3', 2) — czyli parsowanie w systemie o podstawie 1 i 2. Stąd NaN. Napisanie .map((s) => parseInt(s, 10)) to naprawa, i przy okazji dowód, że rozumiesz, skąd się bierze ten trzeci argument.
+
+ale o co chodzi z parseInt(s, 10) co to za 10
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
