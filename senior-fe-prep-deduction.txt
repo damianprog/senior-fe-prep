@@ -1565,21 +1565,99 @@ js
 
 parseInt przyjmuje (string, radix), a map podaje (value, index). Więc lecą wywołania parseInt('1', 0), parseInt('2', 1), parseInt('3', 2) — czyli parsowanie w systemie o podstawie 1 i 2. Stąd NaN. Napisanie .map((s) => parseInt(s, 10)) to naprawa, i przy okazji dowód, że rozumiesz, skąd się bierze ten trzeci argument.
 
+noted:
 ale o co chodzi z parseInt(s, 10) co to za 10
 
+Back to claude:
+
+const p  = new MyPromise((resolve) => setTimeout(() => resolve(42), 1000))
+const p2 = p.then((v) => v + 1)
+
+do tablicy handlers dokładany jest obiekt handler kiedy ktoś zawoła .then
+
+Moment 1 — zaraz po new, executor już się wykonał i zarejestrował timer:
+
+p = MyPromise {
+  status:     'pending',
+  value:      undefined,
+  handlers:   [],          ← pusta, nikt jeszcze nie zawołał .then
+  isResolved: false
+}
+
+Moment 2 — po p.then((v) => v + 1):
+
+.then robi dwie rzeczy: tworzy p2 i wkłada jeden rekord do tablicy p.handlers.
+
+p = MyPromise {
+  status:   'pending',
+  value:    undefined,
+  handlers: [
+    {                                    ← JEDEN obiekt typu Handler
+      onFulfilled: (v) => v + 1,         ← callback usera
+      onRejected:  undefined,            ← user nie podał drugiego
+      resolve:     ƒ resolve_p2,         ← przełącznik p2  ("adres zwrotny")
+      reject:      ƒ reject_p2           ← przełącznik p2
+    }
+  ]
+}
+
+p2 = MyPromise { status: 'pending', value: undefined, handlers: [] }
+
+Nie rozumiem o co chodzi z resolve i reject w tym przykładzie
+a do czego służyły pola resolve i reject?
+U mnie w obiekcie handler zdefiniowane jako 
+resolveNext: (value: any) => void;
+rejectNext: (reason: any) => void;
+
+chodzi o zajęcie się kolejną promise
+
+handler to jest jakby przygotowanie następnej promise
+
+Claude:
+To jest cała tajemnica handlers. To notatka na przyszłość o treści: „gdy dostanę wartość, wykonaj onFulfilled na tej wartości, a wynik wstaw do p2 przez resolve". Tablica, bo takich notatek może być wiele (rozgałęzienie — p.then(C); p.then(D)).
+
+pamiętajmy że to .then tworzy następną promise
+
+Moment 3 — po sekundzie, resolve(42) → settle('fulfilled', 42):
+
+p = MyPromise {
+  status:   'fulfilled',
+  value:    42,
+  handlers: []             ← opróżnione, notatki poszły do kolejki mikro
+}
+
+microtask queue: [ wrapper(rekord, 42) ]
+
+ok pierwsza promise się wykonała zatem jakoś zajęliśmy się kwestią drugiej promise której dane były przygotowane w handlers
+ale w jaki sposób się zajeliśmy tą kwestią drugiej promise?
+
+Moment 4 — checkpoint, wrapper się wykonuje:
+
+wynik = onFulfilled(42)   →  43
+resolve_p2(43)            →  p2.status = 'fulfilled', p2.value = 43
+                          →  i teraz p2 przelewa SWOJE handlers → łańcuch leci dalej
+
+6. „Przelej handlers do kolejki" — dosłownie
+
+To zdanie znaczy: przeleć pętlą po tablicy handlers i dla każdego rekordu zawołaj queueMicrotask(wrapper), a potem wyczyść tablicę.
+
+Czy then tworzy nowy promise? Tak, zawsze i bezwarunkowo. To jest jedyny powód, dla którego łańcuchowanie działa: p.then(a).then(b) to .then(b) wołane na obiekcie zwróconym przez .then(a).
+
+Czy w catch wołamy reject? Tak. try { executor(...) } catch (err) { reject(err) } — i to jest cała implementacja testu p3.
+
+resolve z executora — zmienia stan istniejącego promise'a,
+MyPromise.resolve — tworzy nowy, od razu rozstrzygnięty.
+
+Wspólna nazwa to historyczny bałagan w API, nie wspólne znaczenie.
+
+kto woła this.resolve i this.reject?
+
+user w ciele executora
+
+settle jest wołany w this.resolve i this.reject
 
 
-
-
-
-
-
-
-
-
-
-
-
+jeśli user w executor zawoła reject
 
 
 

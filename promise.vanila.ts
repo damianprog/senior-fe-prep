@@ -44,7 +44,26 @@ export class MyPromise<T> {
   private value: any = undefined;
   private isResolved: boolean = false;
 
-  constructor(executor: any) {}
+  private settle(status: PromiseStatus, value: any): void {
+    this.status = status;
+    this.value = value;
+
+    // todo: flush handlers
+  }
+
+  private resolve = (value: T): void => {
+    this.settle(FULFILLED, value);
+  };
+
+  private reject = (reason: any): void => {
+    this.settle(REJECTED, reason);
+  };
+
+  constructor(executor: Executor<T>) {
+    try {
+      executor(this.resolve, this.reject);
+    } catch (err) {}
+  }
 
   then() {
     throw new Error("Not implemented");
