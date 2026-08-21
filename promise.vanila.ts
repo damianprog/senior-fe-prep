@@ -23,6 +23,11 @@ const REJECTED: PromiseStatus = "rejected";
 // Step 7: static resolve, static reject
 // - Run tests for statics
 
+type Executor<T> = (
+  resolve: (value: T) => void,
+  reject: (reason: any) => void,
+) => void;
+
 type OnFulfilled<T, R> = (value: T) => R;
 type OnRejected<R> = (reason: any) => R;
 
@@ -34,6 +39,11 @@ type Handler = {
 };
 
 export class MyPromise<T> {
+  private handlers: Handler[] = [];
+  private status: PromiseStatus = PENDING;
+  private value: any = undefined;
+  private isResolved: boolean = false;
+
   constructor(executor: any) {}
 
   then() {

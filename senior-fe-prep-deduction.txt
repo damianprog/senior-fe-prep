@@ -1365,6 +1365,8 @@ To nie są metody, tylko pola trzymające referencje do funkcji. Handler to zwyk
 type OnFulfilled<T, R> = (value: T) => R;
 type OnRejected<R> = (reason: any) => R;
 
+Back to Claude:
+
 T = typ wartości, którą ten promise trzyma (czyli to, co dostanie callback)
 R = typ, który callback zwraca — a przez to typ wartości następnego promise'a w łańcuchu
 
@@ -1374,24 +1376,59 @@ Dlaczego then<R> ma tylko jeden parametr generyczny (tak jest w liście kroków 
 
 then<R>(onFulfilled?: OnFulfilled<T, R>): MyPromise<R>
 
+Back to Moja dedukcja:
+
+// private value: T; 
+Wiem że value którą trzyma Promise jest typu T
+przypuszczam również że wartość dla value będzie przypisywana w konstruktorze
+ale w jaki sposób będzie przypisywana w konstruktorze?
+i co przypisać do tego pola przy jego deklaracji? 
+bo nie mogę zostawić tego tak: private value: T;
+bo dostaję następujący error: 
+"Property 'value' has no initializer and is not definitely assigned in the constructor."
+Nie wiem czym jest executor w parametrach konstruktora
+I ogólnie mam bardzo mgliste pojęcie jak to wszystko ma działać razem
+
+Back to claude:
+
+1. value — dlaczego nie może być T
+
+Twoje przypuszczenie („wartość przypisuje konstruktor") jest źródłem błędu. Konstruktor nie przypisuje value. Robi to settle, wywołane przez resolve albo reject
+
+- w trakcie konstruktora (gdy executor woła resolve synchronicznie — test p1),
+- za sekundę (gdy resolve siedzi w callbacku timera — snippet 3 z wizualizatora),
+- nigdy (promise, który zostaje pending na zawsze — to jest legalny, działający promise).
+
+nie ma gwarancji, że do końca konstruktora to pole dostanie wartość.
+
+Drugi problem: w gałęzi rejected w tym samym polu siedzi powód błędu, który nie jest typu T.
+
+więc: 
+private value: any = undefined
+
+Straciłeś tu bezpieczeństwo typów i to jest świadomy koszt, wart nazwania na rozmowie. Uczciwsze modelowanie — gdyby zadanie nie narzucało listy pól — to unia rozłączna, w której status i wartość są jednym polem:
+
+ts
+type State<T> =
+  | { status: 'pending' }
+  | { status: 'fulfilled'; value: T }
+  | { status: 'rejected'; reason: any }
 
 
+Wtedy kompilator sam pilnuje, że do value sięgasz wyłącznie po sprawdzeniu statusu — dokładnie ten mechanizm, który polubiłeś przy Stringify (type guard zamiast as). Zrób to zgodnie z listą kroków (status + value osobno), ale zanotuj tę alternatywę — jak pokażesz ten kod rekruterowi i sam powiesz „tu straciłem typowanie, dałoby się to zrobić unią rozłączną", to jest dokładnie ta różnica między „umiem odtworzyć" a „rozumiem".
+
+2. Czym jest executor
+
+To funkcja, którą pisze user i przekazuje do konstruktora.
+
+new MyPromise((resolve) => resolve(42))
+//             └────────────────────┘
+//              TO jest executor
 
 
+type Executor<T> = (resolve: (value: T) => void, reject: (reason: any) => void) => void
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+Executor dostaje dwie funkcje i nic nie zwraca. Cała komunikacja idzie przez wywołanie jednej z nich.
 
 
 
