@@ -1657,7 +1657,42 @@ user w ciele executora
 settle jest wołany w this.resolve i this.reject
 
 
-jeśli user w executor zawoła reject
+jeśli user w executor zawoła reject(reason: any)
+to odpalamy this.reject i co ma być w tym this.reject?
+gdzie robimy throw? po settlemencie?
+i co umieszczamy w catch wokół executor?
+
+
+strażnik powinien stać w takim miejscu że 
+new MyPromise((resolve) => { resolve(1); throw new Error('za późno') })
+daje 
+
+fullfiled value 1
+
+p.then((v) => v + 1):
+
+.then robi coś z wartością zwróconą z poprzedniej promise
+.then powinno przyjmować dwa argumenty ale user podał jeden to znaczy przekazał tylko parametr onFulfilled
+
+then wykonuje się TERAZ, synchronicznie. Callback ma się wykonać PÓŹNIEJ, w mikrotasku.
+wywołanie callbacku synchronicznie łamie kontrakt
+reakcja nigdy nie odpala synchronicznie.
+
+then ma tylko zapisać notatkę na przyszłość. Wykonaniem zajmuje się flushHandlers i wrapper
+
+w chwili rejestracji nie wiesz jeszcze, czy ten promise skończy jako fulfilled, czy rejected
+
+Wybór, którego callbacku użyć, musi więc nastąpić w chwili wykonania, na podstawie status — a nie w chwili rejestracji, na podstawie tego, który argument user podał.
+
+
+
+
+
+
+
+
+
+
 
 
 

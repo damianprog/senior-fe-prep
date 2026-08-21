@@ -45,10 +45,12 @@ export class MyPromise<T> {
   private isResolved: boolean = false;
 
   private settle(status: PromiseStatus, value: any): void {
-    this.status = status;
-    this.value = value;
-
-    // todo: flush handlers
+    if (!this.isResolved) {
+      this.status = status;
+      this.value = value;
+      this.isResolved = true;
+      // todo: flush handlers
+    }
   }
 
   private resolve = (value: T): void => {
@@ -62,11 +64,21 @@ export class MyPromise<T> {
   constructor(executor: Executor<T>) {
     try {
       executor(this.resolve, this.reject);
-    } catch (err) {}
+    } catch (err) {
+      this.reject(err);
+    }
   }
 
-  then() {
-    throw new Error("Not implemented");
+  then<R>(
+    onFulfilled?: OnFulfilled<any, any>,
+    onRejected?: OnRejected<R>,
+  ): MyPromise<R> {
+    const next = new MyPromise<R>((resolveNext, rejectNext) => {
+      this.handlers.push({ onFulfilled, onRejected, resolveNext, rejectNext });
+    });
+
+    this.flushHandlers();
+    return next;
   }
   catch() {
     throw new Error("Not implemented");
@@ -83,17 +95,28 @@ export class MyPromise<T> {
 // Uncomment to test your implementation:
 
 // --- Step 4: constructor + Executor ---
-// const p1 = new MyPromise((resolve: any) => resolve(42))
-// console.log(p1) // Expected: MyPromise { status: 'fulfilled', value: 42 }
+const p1 = new MyPromise((resolve: any) => resolve(42));
+console.log(p1); // Expected: MyPromise { status: 'fulfilled', value: 42 }
 //
-// const p2 = new MyPromise((_: any, reject: any) => reject('error'))
-// console.log(p2) // Expected: MyPromise { status: 'rejected', value: 'error' }
+const p2 = new MyPromise((_: any, reject: any) => reject("error"));
+console.log(p2); // Expected: MyPromise { status: 'rejected', value: 'error' }
+
+const p3 = new MyPromise(() => {
+  throw new Error("oops");
+});
+console.log(p3); // Expected: MyPromise { status: 'rejected', value: Error: oops }
 //
-// const p3 = new MyPromise(() => { throw new Error('oops') })
-// console.log(p3) // Expected: MyPromise { status: 'rejected', value: Error: oops }
-//
-// const p4 = new MyPromise((resolve: any) => { resolve(1); resolve(2) })
-// console.log(p4) // Expected: MyPromise { status: 'fulfilled', value: 1 } (settled once)
+const p4 = new MyPromise((resolve: any) => {
+  resolve(1);
+  resolve(2);
+});
+console.log(p4); // Expected: MyPromise { status: 'fulfilled', value: 1 } (settled once)
+
+const catchTooLate = new MyPromise((resolve) => {
+  resolve(1);
+  throw new Error("za późno");
+});
+console.log(catchTooLate);
 
 // --- Step 6: then / catch and chaining ---
 // const p5 = new MyPromise((resolve: any) => resolve(42))
