@@ -69,6 +69,24 @@ export class MyPromise<T> {
     }
   }
 
+  private flushHandlers(): void {
+    if (this.status === PENDING) return;
+
+    const pending = this.handlers;
+    this.handlers = [];
+
+    pending.forEach((handler) =>
+      queueMicrotask(() => {
+        const callback =
+          this.status === FULFILLED ? handler.onFulfilled : handler.onRejected;
+
+        if (!callback) {
+          if (this.status === FULFILLED) handler.resolveNext(this.value);
+        }
+      }),
+    );
+  }
+
   then<R>(
     onFulfilled?: OnFulfilled<any, any>,
     onRejected?: OnRejected<R>,
@@ -80,8 +98,8 @@ export class MyPromise<T> {
     this.flushHandlers();
     return next;
   }
-  catch() {
-    throw new Error("Not implemented");
+  catch<R>(onRejected: OnRejected<R>): MyPromise<R> {
+    return this.then(undefined, onRejected);
   }
   static resolve() {
     throw new Error("Not implemented");

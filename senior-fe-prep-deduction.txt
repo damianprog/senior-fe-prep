@@ -1685,6 +1685,65 @@ w chwili rejestracji nie wiesz jeszcze, czy ten promise skończy jako fulfilled,
 Wybór, którego callbacku użyć, musi więc nastąpić w chwili wykonania, na podstawie status — a nie w chwili rejestracji, na podstawie tego, który argument user podał.
 
 
+jeśli utworzymy promise i napiszemy mu executor to ten executor dostanie parę sterującą nowego peomisa
+
+zatem jeśli dodamy je do obiektu handler to ten handler będzie zawierał referencje do resolveNext i rejectNext i będzie można je później wykorzystac
+
+this.handlers.push odnosi się do promise na którym zawołano .then bo to jego wartości dotyczy
+
+czyli to nie są handlers na next
+
+const next = new MyPromise<R>((resolveNext, rejectNext) => {
+      this.handlers.push({ onFulfilled, onRejected, resolveNext, rejectNext });
+    });
+
+czyli tym sposobem promise na której zawołano .then, za pośrednictwem handlers ma dostęp do resolve oraz next następnej promise
+
+
+private flushHandlers = (): void => {
+    if (this.status === PENDING) return;
+
+    this.handlers.forEach(handler => queueMicrotask())
+  }
+
+flushHandlers powinno być arrow function?
+Chyba tak bo potrzebne jest this leksykalnego scope
+
+a co powinno być przekazane jako argument do queueMicrotask()?
+
+callback function ale która?
+
+któraś do której referencja jest w current obiekcie handler
+{ onFulfilled, onRejected, resolveNext, rejectNext }
+
+Back to claude:
+
+Strzałka jako pole klasy jest potrzebna tylko wtedy, gdy funkcja zostanie oderwana od obiektu — przekazana gdzieś jako goła referencja i wywołana bez kropki.
+
+a flushHandlers wykonujemy w then na obecnym obiekcie więc nie musi to być arrow function ale może być
+
+ale pamiętajmy że arrow function jest tworzona osobno dla każdego obiektu
+i to jest koszt więc jeśli nie ma potrzeby korzystania z arrow function
+to lepiej napisać zwykłą metodę na prototypie
+
+
+więc do kolejki microtaskQueue jest przekazywany wrapper
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
